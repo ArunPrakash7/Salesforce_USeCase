@@ -1,0 +1,82 @@
+import { LightningElement, wire } from 'lwc';
+import getProductsByIndustry from '@salesforce/apex/ProductController.getProductsByIndustry';
+import getAllIndustries from '@salesforce/apex/ProductController.getAllIndustries';
+
+export default class ProductList extends LightningElement {
+    industryOptions = [];
+    selectedIndustries = [];
+    products;
+
+    @wire(getAllIndustries) wiredIndustries({data, error}) {
+        if (data) {
+            this.industryOptions = data.map(industry => ({
+                label: industry.Name,
+                value: industry.Id
+            }));
+        } else if (error) {
+            console.error('Error fetching industries', error);
+        }
+    }
+
+    handleFilter() {
+        // Call the Apex method to get products based on selected industries
+        getProductsByIndustry({ selectedIndustryIds: this.selectedIndustries })
+            .then(result => {
+                this.products = result;
+            })
+            .catch(error => {
+                console.error('Error fetching products', error);
+            });
+    }
+
+    handleIndustryChange(event) {
+        this.selectedIndustries = event.detail.value;
+    }
+}
+
+
+public with sharing class ProductController {
+    @AuraEnabled(cacheable=true)
+    public static List<Product__c> getProductsByIndustry(Set<String> selectedIndustryIds) {
+        String query = 'SELECT Id, Name, Industry__c FROM Product__c';
+        
+        if (!selectedIndustryIds.isEmpty()) {
+            String industryIds = String.join(new List<String>(selectedIndustryIds), '\',\'');
+            query += ' WHERE Industry__c IN (\'' + industryIds + '\')';
+        }
+
+        return Database.query(query);
+    }
+
+    @AuraEnabled(cacheable=true)
+    public static List<Industry__c> getAllIndustries() {
+        return [SELECT Id, Name FROM Industry__c];
+    }
+}
+
+
+<template>
+    <lightning-card title="Product List">
+        <!-- Filter Button -->
+        <lightning-button-group>
+            <lightning-button label="Filter" onclick={handleFilter}></lightning-button>
+        </lightning-button-group>
+
+        <!-- Industry Checkbox Group -->
+        <lightning-checkbox-group
+            label="Select Industries"
+            options={industryOptions}
+            value={selectedIndustries}
+            onchange={handleIndustryChange}
+        ></lightning-checkbox-group>
+
+        <!-- Product List -->
+        <template if:true={products}>
+            <ul>
+                <template for:each={products} for:item="product">
+                    <li key={product.Id}>{product.Name}</li>
+                </template>
+            </ul>
+        </template>
+    </lightning-card>
+</template>
