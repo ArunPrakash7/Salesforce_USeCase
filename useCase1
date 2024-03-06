@@ -1,3 +1,4 @@
+-------------ProductList.js--------------
 import { LightningElement, wire } from 'lwc';
 import getProductsByIndustry from '@salesforce/apex/ProductController.getProductsByIndustry';
 import getAllIndustries from '@salesforce/apex/ProductController.getAllIndustries';
@@ -34,26 +35,29 @@ export default class ProductList extends LightningElement {
     }
 }
 
+-----------Apex Controller-------------
+public with sharing class demoUseCase {
 
-public with sharing class ProductController {
-    @AuraEnabled(cacheable=true)
-    public static List<Product__c> getProductsByIndustry(Set<String> selectedIndustryIds) {
-        String query = 'SELECT Id, Name, Industry__c FROM Product__c';
-        
-        if (!selectedIndustryIds.isEmpty()) {
-            String industryIds = String.join(new List<String>(selectedIndustryIds), '\',\'');
-            query += ' WHERE Industry__c IN (\'' + industryIds + '\')';
+        @AuraEnabled(cacheable=true)
+        public static List<Products__c> getProductsByIndustry(List<String> selectedIndustryIds) {
+            Set<String> industryIdsSet = new Set<String>(selectedIndustryIds);
+            String query = 'SELECT Id, Name, Industry__c FROM Products__c';
+            
+            if (!industryIdsSet.isEmpty()) {
+                String industryIds = String.join(new List<String>(industryIdsSet), '\',\'');
+                query += ' WHERE Industry__c IN (\'' + industryIds + '\')';
+            }
+    
+            return Database.query(query);
         }
-
-        return Database.query(query);
+    
+        @AuraEnabled(cacheable=true)
+        public static List<Industry__c> getAllIndustries() {
+            return [SELECT Id, Name FROM Industry__c];
+        }
     }
 
-    @AuraEnabled(cacheable=true)
-    public static List<Industry__c> getAllIndustries() {
-        return [SELECT Id, Name FROM Industry__c];
-    }
-}
-
+-------------ProductList.html--------------
 
 <template>
     <lightning-card title="Product List">
