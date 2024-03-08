@@ -1,0 +1,83 @@
+<template>
+    <lightning-card title="Product Selection" icon-name="standard:product">
+        <div class="slds-p-around_medium">
+            <!-- Display products in a user-friendly way -->
+            <template if:true={products}>
+                <ul>
+                    <template for:each={products} for:item="product">
+                        <li key={product.Id}>
+                            {product.Name} - ${product.Price__c}
+                            <!-- Add a button or other UI element for product selection -->
+                            <button onclick={handleProductSelection} data-product-id={product.Id}>Select</button>
+                        </li>
+                    </template>
+                </ul>
+            </template>
+            <!-- Show a message if no products are available -->
+            <template if:false={products}>
+                <p>No products available for the selected industry.</p>
+            </template>
+        </div>
+    </lightning-card>
+</template>
+
+
+import { LightningElement, wire } from 'lwc';
+import getFilteredProducts from '@salesforce/apex/ProductSelectionController.getFilteredProducts';
+
+export default class ProductSelectionLWC extends LightningElement {
+    products;
+
+    @wire(getFilteredProducts)
+    wiredProducts({ error, data }) {
+        if (data) {
+            this.products = data;
+        } else if (error) {
+            // Handle error appropriately
+        }
+    }
+
+    handleProductSelection(event) {
+        // Handle product selection logic here
+        const selectedProductId = event.detail.productId;
+        // Implement further actions based on the selected product
+    }
+}
+
+
+public with sharing class ProductSelectionController {
+
+    @AuraEnabled(cacheable=true)
+    public static List<Product__c> getFilteredProducts() {
+        // Get the current user's profile and industry
+        String userProfile = getUserProfile(UserInfo.getUserId());
+        String userIndustry = getUserIndustry(UserInfo.getUserId());
+
+        // Validate if the user is assigned to a valid industry
+        if (userIndustry != null) {
+            // Construct a dynamic query to retrieve products related to the user's industry
+            String query = 'SELECT Id, Name, Price__c FROM Product__c WHERE Industry__r.Name = \'' + userIndustry + '\'';
+            
+            // Add additional conditions or filters as needed
+
+            // Execute the dynamic query
+            return Database.query(query);
+        }
+        
+        // If the user is not assigned to a valid industry, return an empty list
+        return new List<Product__c>();
+    }
+
+    // Helper method to get the user's profile
+    private static String getUserProfile(Id userId) {
+        User userRecord = [SELECT Id, Profile.Name FROM User WHERE Id = :userId LIMIT 1];
+        return userRecord.Profile.Name;
+    }
+
+    // Helper method to get the user's assigned industry
+    private static String getUserIndustry(Id userId) {
+        // Query the Industry__c field on the User object to get the assigned industry
+        User userRecord = [SELECT Id, Industry__c FROM User WHERE Id = :userId LIMIT 1];
+        return userRecord.Industry__c;
+    }
+}
