@@ -1,18 +1,23 @@
-<template>
-    <!-- ... (your existing code) ... -->
+import { LightningElement, wire } from 'lwc';
+import userIndustySt from '@salesforce/apex/userIndustyStory.userIndustySt';
+import getProductsByIndustry from '@salesforce/apex/demoUseCase.getProductsByIndustry';
 
-    <lightning-card title="Filtered Products" icon-name="standard:product">
-        <div class="slds-p-around_medium">
-            <template if:true={productsList}>
-                <ul>
-                    <template for:each={productsList} for:item="productLst">
-                        <li key={productLst.Id}>
-                            <input type="checkbox" id={productLst.Id} />
-                            <label for={productLst.Id}>{productLst.Name}</label>
-                        </li>
-                    </template>
-                </ul>
-            </template>
-        </div>
-    </lightning-card>
-</template>
+export default class UserIndustryStory extends LightningElement {
+    // ... (your existing code) ...
+
+    addedProducts = [];
+    selectedProductIds = [];
+
+    handleCheckboxChange(event) {
+        const productId = event.target.dataset.id;
+        if (event.target.checked) {
+            this.selectedProductIds = [...this.selectedProductIds, productId];
+        } else {
+            this.selectedProductIds = this.selectedProductIds.filter(id => id !== productId);
+        }
+    }
+
+    addToCart() {
+        this.addedProducts = this.productsList.filter(product => this.selectedProductIds.includes(product.Id));
+    }
+}
