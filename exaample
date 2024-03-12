@@ -1,75 +1,18 @@
 <template>
-    <lightning-card title="Product Selection" icon-name="standard:product">
-        <div class="slds-p-around_medium">
-            
-            <template if:true={products}>
-                <lightning-combobox 
-                    name="productSelection"
-                    label="Select Products"
-                    placeholder="Select products"
-                    options={productOptions}
-                    value={selectedIndustries}
-                    onchange={handleProductSelection}>
-                </lightning-combobox>
-                <lightning-button-group if:true={products.length}>
-                    <lightning-button label="Filter" onclick={handleFilter}></lightning-button>
-                </lightning-button-group>
-            </template>
-            
-        </div>
-    </lightning-card>
+    <!-- ... (your existing code) ... -->
 
     <lightning-card title="Filtered Products" icon-name="standard:product">
         <div class="slds-p-around_medium">
             <template if:true={productsList}>
                 <ul>
                     <template for:each={productsList} for:item="productLst">
-                        <li key={productLst.Id}>{productLst.Name}</li>
+                        <li key={productLst.Id}>
+                            <input type="checkbox" id={productLst.Id} />
+                            <label for={productLst.Id}>{productLst.Name}</label>
+                        </li>
                     </template>
                 </ul>
             </template>
         </div>
     </lightning-card>
 </template>
-
-import { LightningElement, wire } from 'lwc';
-import userIndustySt from '@salesforce/apex/userIndustyStory.userIndustySt';
-import getProductsByIndustry from '@salesforce/apex/demoUseCase.getProductsByIndustry';
-
-export default class UserIndustryStory extends LightningElement
-{
-    products;
-    productsList;
-    selectedIndustries = [];
-
-    @wire(userIndustySt)
-    wiredProducts({ error, data }) 
-    {
-        if (data) {
-            this.products = data;
-        } else if (error) {
-            this.products = error;
-        }
-    }
-
-    get productOptions() {
-        return this.products.map(product => ({
-            label: product.Name,
-            value: product.Id
-        }));
-    }
-
-    handleFilter() {
-        getProductsByIndustry({ selectedIndustryIds: this.selectedIndustries })
-            .then(result => {
-                this.productsList = result;
-            })
-            .catch(error => {
-                console.error('Error fetching products', error);
-            });
-    }
-
-    handleProductSelection(event) {
-        this.selectedIndustries = event.detail.value;
-    }
-}
