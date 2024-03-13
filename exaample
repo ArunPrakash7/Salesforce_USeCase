@@ -86,4 +86,20 @@ export default class OpportunityList extends LightningElement {
         // Handle row selection if needed
     }
 }
+<template>
+    <lightning-card title="Opportunity Records with Close Date Today">
+        <lightning-datatable
+            key-field="Id"
+            data={opportunities}
+            columns={columns}
+            hide-checkbox-column="true"
+            onrowselection={handleRowSelection}>
+        </lightning-datatable>
+
+        <lightning-button-group>
+            <lightning-button label="Previous" onclick={previousPage} disabled={isFirstPage}></lightning-button>
+            <lightning-button label="Next" onclick={nextPage} disabled={isLastPage}></lightning-button>
+        </lightning-button-group>
+    </lightning-card>
+</template>
 
