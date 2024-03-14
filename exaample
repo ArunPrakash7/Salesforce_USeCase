@@ -1,34 +1,5 @@
-<template>
-    <lightning-card title="Filtered Products" icon-name="standard:product">
-        <div class="slds-p-around_medium">
-            <template if:true={productsList}>
-                <ul class="slds-grid slds-wrap">
-                    <template for:each={productsList} for:item="productLst">
-                        <li key={productLst.Id} class="slds-col slds-size_1-of-3">
-                            <div class="slds-card">
-                                <div class="slds-card__header">
-                                    <img src={productLst.ImageUrl} alt={productLst.Name} class="product-image" />
-                                </div>
-                                <div class="slds-card__body slds-card__body_inner">
-                                    <label for={productLst.Id}>{productLst.Name}</label>
-                                </div>
-                                <div class="slds-card__footer">
-                                    <input type="checkbox" id={productLst.Id} data-id={productLst.Id} onchange={handleCheckboxChange}/>
-                                </div>
-                            </div>
-                        </li>
-                    </template>
-                </ul>
-                <lightning-button label="Add to Cart" onclick={addToCart}></lightning-button>
-            </template>
-        </div>
-    </lightning-card>
-
-    <c-child-component if:true={addedProducts.length} products={addedProducts}></c-child-component>
-</template>
-
 import { LightningElement, wire } from 'lwc';
-import getOpportunitiesToday from '@salesforce/apex/OpportunityController.getOpportunitiesToday';
+import getOpportunitiesToday from '@salesforce/apex/OpportunityCloseDate.getOpportunityClose';
 
 const PAGE_SIZE = 10;
 
@@ -38,67 +9,7 @@ const columns = [
     { label: 'Amount', fieldName: 'Amount', type: 'currency' }
 ];
 
-export default class OpportunityList extends LightningElement {
-    opportunities = [];
-    columns = columns;
-    currentPage = 1;
-    totalRecords = 0;
-
-    @wire(getOpportunitiesToday)
-    wiredOpportunities({ error, data }) {
-        if (data) {
-            this.totalRecords = data.length;
-            this.opportunities = this.paginateData(data);
-        } else if (error) {
-            console.error('Error retrieving opportunities:', error);
-        }
-    }
-
-    get isFirstPage() {
-        return this.currentPage === 1;
-    }
-
-    get isLastPage() {
-        return this.currentPage * PAGE_SIZE >= this.totalRecords;
-    }
-
-    nextPage() {
-        this.currentPage++;
-        this.updateData();
-    }
-
-    previousPage() {
-        this.currentPage--;
-        this.updateData();
-    }
-
-    updateData() {
-        this.opportunities = this.paginateData();
-    }
-
-    paginateData() {
-        const startIndex = (this.currentPage - 1) * PAGE_SIZE;
-        const endIndex = startIndex + PAGE_SIZE;
-        return this.allOpportunities.slice(startIndex, endIndex);
-    }
-
-    handleRowSelection(event) {
-        // Handle row selection if needed
-    }
-}
-
-import { LightningElement, wire } from 'lwc';
-import getOpportunitiesToday from '@salesforce/apex/OpportunityController.getOpportunitiesToday';
-
-const PAGE_SIZE = 10;
-
-const columns = [
-    { label: 'Opportunity Name', fieldName: 'Name', type: 'text' },
-    { label: 'Close Date', fieldName: 'CloseDate', type: 'date' },
-    { label: 'Amount', fieldName: 'Amount', type: 'currency' }
-];
-
-export default class OpportunityList extends LightningElement {
+export default class OpportunityCloseDateDisplay extends LightningElement {
     opportunities = [];
     columns = columns;
     currentPage = 1;
@@ -141,9 +52,5 @@ export default class OpportunityList extends LightningElement {
         const startIndex = (this.currentPage - 1) * PAGE_SIZE;
         const endIndex = startIndex + PAGE_SIZE;
         return this.allOpportunities.slice(startIndex, endIndex);
-    }
-
-    handleRowSelection(event) {
-        // Handle row selection if needed
     }
 }
