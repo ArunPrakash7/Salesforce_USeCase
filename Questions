@@ -1,0 +1,28 @@
+1. Best practices used in code for code performance improvement . What criteria made you to  moveyour code to future or queuable . 
+2. Asynchronous/batch/queueable/future methods
+3. Triggers
+4. Recursive triger , how to avoid it? 
+5. whats the depth or governor limit . What error you see ?
+6. Custom Settings Vs Custom Metadata Types. When to use what (scenario based)
+7. Can you move Custom settings from one instance to another ? 
+8. Different types of Custom settings and what are they?
+9. Can you move Custom Metadata from one instance to another ?
+10. Wire method in LWC. What are the different decorators ?
+11. Lightning Flows - different type of flows that you worked in . Explain one flow. When to use flows(scenario based)
+12. Salesforce Integration - steps for Integration set up
+13. Inbound integration.Explain with an example
+14. Outbound integration.Explain with an example
+15. What is API Timeout ? How can we handle it.
+16. Can Rest class be made as primary class ? Can it be public ?
+17. Rest API callout via apex code
+18. What is Row Lock? 
+19. Write soql to retrieve the 2nd highest salary record from Salary object -One way -  Find distinct records counts in descending order , then get the 2nd record
+20. Write SOQL to find Contact where first name and second name are same . Use "First name in (Select last name from Contact where ?
+21. Write a trigger on oportunity - Account is a look up on opportunity , Opportunites are many in an account . When ever all oppty gets closed, a boolean flag "all_opty_closed " on respective Account record has to be updated as Y
+22. Types of triggers
+23. Best practices in apex coding
+24. Best practices when we write the triggers
+25. CI / CD tool , version control tools
+26. GIT commands
+27. Pull request
+28. Push command
