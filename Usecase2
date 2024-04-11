@@ -4,7 +4,7 @@ import updateCaseStatus from '@salesforce/apex/CaseHandler.updateCaseStatus';
 
 export default class CaseStatusUpdate extends LightningElement {
     cases;
-    selectedCases = [];
+    selectedCaseIds = [];
     selectedStatus;
     statusOptions = [{ label: 'Approved', value: 'Approved' }, { label: 'Cancelled', value: 'Cancelled' }];
 
@@ -20,9 +20,9 @@ export default class CaseStatusUpdate extends LightningElement {
     handleCheckboxChange(event) {
         const caseId = event.target.value;
         if (event.target.checked) {
-            this.selectedCases.push(caseId);
+            this.selectedCaseIds.push(caseId);
         } else {
-            this.selectedCases = this.selectedCases.filter(id => id !== caseId);
+            this.selectedCaseIds = this.selectedCaseIds.filter(id => id !== caseId);
         }
     }
 
@@ -31,8 +31,8 @@ export default class CaseStatusUpdate extends LightningElement {
     }
 
     handleNext() {
-        if (this.selectedCases.length > 0 && this.selectedStatus) {
-            updateCaseStatus({ caseIds: this.selectedCases, status: this.selectedStatus })
+        if (this.selectedCaseIds.length > 0 && this.selectedStatus) {
+            updateCaseStatus({ caseIds: this.selectedCaseIds, status: this.selectedStatus })
                 .then(() => {
                     // Handle success message or any other action
                     console.log('Cases updated successfully.');
@@ -49,7 +49,7 @@ export default class CaseStatusUpdate extends LightningElement {
             <template if:true={cases}>
                 <template for:each={cases} for:item="caseRec">
                     <div key={caseRec.Id}>
-                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={selectedCases.includes(caseRec.Id)} onchange={handleCheckboxChange}></lightning-input>
+                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={isSelected(caseRec.Id)} onchange={handleCheckboxChange}></lightning-input>
                     </div>
                 </template>
                 <div style="margin-top: 10px;">
