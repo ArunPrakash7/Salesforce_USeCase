@@ -1,10 +1,84 @@
-public static void updateCaseStatus(List<Id> caseIds, String newStatus) {
-        List<Case> casesToUpdate = [SELECT Id FROM Case WHERE Id IN :caseIds];
-        
-        for (Case c : casesToUpdate) {
-            c.Status = newStatus;
+<template>
+    <lightning-card title="Cases in Director Queue" icon-name="standard:case">
+        <lightning-datatable
+            data={data}
+            columns={columns}
+            key-field="Id"
+            onrowselection={handleRowSelection}
+            selected-rows={selectedRows}
+            hide-checkbox-column
+        ></lightning-datatable>
+        <template if:true={showRadioButtons}>
+            <lightning-radio-group
+                name="status"
+                options={statusOptions}
+                value={selectedStatus}
+                onchange={handleStatusChange}
+            ></lightning-radio-group>
+            <div style="margin-top: 20px;">
+                <lightning-button
+                    label="Next"
+                    variant="brand"
+                    title="Primary action"
+                    onclick={handleUpdateStatus}
+                ></lightning-button>
+            </div>
+        </template>
+        <template if:false={showRadioButtons}>
+            <p>No cases selected.</p>
+        </template>
+    </lightning-card>
+</template>
+ import { LightningElement, track, wire } from 'lwc';
+import getCases from '@salesforce/apex/CaseController.getCases';
+import updateCaseStatus from '@salesforce/apex/CaseController.updateCaseStatus';
+
+const columns = [
+    { label: 'Case Number', fieldName: 'CaseNumber' },
+    { label: 'Origin', fieldName: 'Origin' },
+    { label: 'Status', fieldName: 'Status' }
+];
+
+export default class CaseRecordNew extends LightningElement {
+    @track data;
+    @track columns = columns;
+    @track selectedRows = [];
+    @track showRadioButtons = false;
+    @track statusOptions = [{ label: 'Approved', value: 'Approved' }, { label: 'Cancelled', value: 'Cancelled' }];
+    @track selectedStatus;
+
+    @wire(getCases)
+    caseRecords({ error, data }) {
+        if (data) {
+            this.data = data;
+        } else if (error) {
+            console.error('Error loading cases:', error);
         }
-        
-        update casesToUpdate;
+    }
+
+    handleRowSelection(event) {
+        this.selectedRows = event.detail.selectedRows;
+        this.showRadioButtons = this.selectedRows.length > 0;
+    }
+
+    handleStatusChange(event) {
+        this.selectedStatus = event.detail.value;
+    }
+
+    handleUpdateStatus() {
+        const caseIds = this.selectedRows.map(row => row.Id);
+        if (caseIds.length > 0 && this.selectedStatus) {
+            updateCaseStatus({ caseIds: caseIds, newStatus: this.selectedStatus })
+                .then(result => {
+                    // Handle success message or any other action
+                    console.log('Cases updated successfully.');
+                    // Optionally, reset selectedRows and selectedStatus
+                    this.selectedRows = [];
+                    this.selectedStatus = '';
+                })
+                .catch(error => {
+                    console.error('Error updating cases:', error);
+                });
+        }
     }
 }
