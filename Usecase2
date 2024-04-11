@@ -2,7 +2,7 @@ import { LightningElement, wire } from 'lwc';
 import getDirectorQueueCases from '@salesforce/apex/DirectorQueueHandler.getDirectorQueueCases';
 import updateCaseStatus from '@salesforce/apex/CaseHandler.updateCaseStatus';
 
-export default class DirectorQueueCases extends LightningElement {
+export default class CaseStatusUpdate extends LightningElement {
     cases;
     selectedCases = [];
     selectedStatus;
@@ -15,10 +15,6 @@ export default class DirectorQueueCases extends LightningElement {
         } else if (error) {
             console.error('Error loading cases:', error);
         }
-    }
-
-    isSelected(caseId){
-        return this.selectedCases.includes(caseId);
     }
 
     handleCheckboxChange(event) {
@@ -53,7 +49,7 @@ export default class DirectorQueueCases extends LightningElement {
             <template if:true={cases}>
                 <template for:each={cases} for:item="caseRec">
                     <div key={caseRec.Id}>
-                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={isSelected(caseRec.Id)} onchange={handleCheckboxChange}></lightning-input>
+                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={selectedCases.includes(caseRec.Id)} onchange={handleCheckboxChange}></lightning-input>
                     </div>
                 </template>
                 <div style="margin-top: 10px;">
