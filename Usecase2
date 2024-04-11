@@ -1,10 +1,40 @@
-import { LightningElement, wire } from 'lwc';
+<template>
+    <lightning-card title="Cases in Director Queue" icon-name="standard:case">
+        <lightning-datatable
+            key-field="Id"
+            data={cases}
+            columns={columns}
+            selected-rows={selectedRows}
+            onrowselection={handleRowSelection}
+            hide-checkbox-column
+        ></lightning-datatable>
+        <template if:true={selectedRows.length}>
+            <div style="margin-top: 20px;">
+                <lightning-radio-group name="status" options={statusOptions} value={selectedStatus} onchange={handleStatusChange}></lightning-radio-group>
+            </div>
+            <div style="margin-top: 20px;">
+                <lightning-button label="Next" variant="brand" onclick={handleNext}></lightning-button>
+            </div>
+        </template>
+        <template if:false={selectedRows.length}>
+            <p>No cases selected.</p>
+        </template>
+    </lightning-card>
+</template>
+ import { LightningElement, wire } from 'lwc';
+import { refreshApex } from '@salesforce/apex';
 import getDirectorQueueCases from '@salesforce/apex/DirectorQueueHandler.getDirectorQueueCases';
 import updateCaseStatus from '@salesforce/apex/CaseHandler.updateCaseStatus';
 
+const columns = [
+    { label: 'Subject', fieldName: 'Subject', type: 'text' },
+    { label: 'Status', fieldName: 'Status', type: 'text' }
+];
+
 export default class CaseStatusUpdate extends LightningElement {
-    cases;
-    selectedCaseIds = [];
+    cases = [];
+    columns = columns;
+    selectedRows = [];
     selectedStatus;
     statusOptions = [{ label: 'Approved', value: 'Approved' }, { label: 'Cancelled', value: 'Cancelled' }];
 
@@ -17,18 +47,8 @@ export default class CaseStatusUpdate extends LightningElement {
         }
     }
 
-    handleCheckboxChange(event) {
-        const caseId = event.target.value;
-        const checked = event.target.checked;
-        
-        this.cases = this.cases.map(item => {
-            if (item.Id === caseId) {
-                item.selected = checked;
-            }
-            return item;
-        });
-
-        this.selectedCaseIds = this.cases.filter(item => item.selected).map(item => item.Id);
+    handleRowSelection(event) {
+        this.selectedRows = event.detail.selectedRows;
     }
 
     handleStatusChange(event) {
@@ -36,11 +56,14 @@ export default class CaseStatusUpdate extends LightningElement {
     }
 
     handleNext() {
-        if (this.selectedCaseIds.length > 0 && this.selectedStatus) {
-            updateCaseStatus({ caseIds: this.selectedCaseIds, status: this.selectedStatus })
+        if (this.selectedRows.length > 0 && this.selectedStatus) {
+            const caseIds = this.selectedRows.map(row => row.Id);
+            updateCaseStatus({ caseIds: caseIds, status: this.selectedStatus })
                 .then(() => {
                     // Handle success message or any other action
                     console.log('Cases updated successfully.');
+                    // Refresh the datatable to reflect the updated status
+                    return refreshApex(this.wiredCases);
                 })
                 .catch(error => {
                     console.error('Error updating cases:', error);
@@ -48,25 +71,3 @@ export default class CaseStatusUpdate extends LightningElement {
         }
     }
 }
- <template>
-    <lightning-card title="Cases in Director Queue" icon-name="standard:case">
-        <lightning-layout>
-            <template if:true={cases}>
-                <template for:each={cases} for:item="caseRec">
-                    <div key={caseRec.Id}>
-                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={caseRec.selected} onchange={handleCheckboxChange}></lightning-input>
-                    </div>
-                </template>
-                <div style="margin-top: 10px;">
-                    <lightning-radio-group name="status" options={statusOptions} value={selectedStatus} onchange={handleStatusChange}></lightning-radio-group>
-                </div>
-                <div style="margin-top: 10px;">
-                    <lightning-button label="Next" variant="brand" onclick={handleNext}></lightning-button>
-                </div>
-            </template>
-            <template if:false={cases}>
-                <p>No cases found in the Director Queue.</p>
-            </template>
-        </lightning-layout>
-    </lightning-card>
-</template>
