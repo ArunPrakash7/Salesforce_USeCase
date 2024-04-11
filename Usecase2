@@ -1,69 +1,10 @@
-<template>
-    <lightning-datatable data={data} columns={columns} key-field="Id"></lightning-datatable>
-    <p>Imperative</p>
-    <lightning-datatable data={accountRecordsList} columns={columns} key-field="Id"></lightning-datatable>
-    <lightning-datatable data={cases} columns={columns} key-field="Id" hide-checkbox-column>
-    </lightning-datatable>
-    <lightning-radio-group if:true={showRadioButtons} name="status" options={statusOptions} value={selectedStatus} onchange={handleStatusChange}></lightning-radio-group>
-    <lightning-button variant="brand" label="Next" title="Primary action" onclick={handleUpdateStatus} class="slds-m-left_x-small"></lightning-button>
-</template>
- import { LightningElement, track, wire } from 'lwc';
-import getCases from '@salesforce/apex/CaseController.getCases';
-import updateCaseStatus from '@salesforce/apex/CaseController.updateCaseStatus';
-
-export default class CaseRecordNew extends LightningElement {
-    @track data;
-    @track accountRecordsList;
-    @track cases = [];
-    @track columns = [
-        { label: 'CaseNumber', fieldName: 'CaseNumber', type: 'text' },
-        { label: 'Origin', fieldName: 'Origin', type: 'text' },
-        { label: 'Status', fieldName: 'Status', type: 'text' },
-    ];
-    @track selectedRows = [];
-    @track showRadioButtons = false;
-    @track statusOptions = [{ label: 'Approved', value: 'Approved' }, { label: 'Cancelled', value: 'Cancelled' }];
-    @track selectedStatus = '';
-
-    @wire(getCases)
-    caseRecords({ error, data }) {
-        if (data) {
-            this.data = data;
-        } else if (error) {
-            this.data = undefined;
+public static void updateCaseStatus(List<Id> caseIds, String newStatus) {
+        List<Case> casesToUpdate = [SELECT Id FROM Case WHERE Id IN :caseIds];
+        
+        for (Case c : casesToUpdate) {
+            c.Status = newStatus;
         }
-    }
-
-    connectedCallback() {
-        // Assuming getAccounts is defined elsewhere
-        getAccounts()
-            .then(result => {
-                this.accountRecordsList = result;
-            })
-            .catch(error => {
-                this.accountRecordsList = undefined;
-            });
-    }
-
-    handleRowSelection(event) {
-        this.selectedRows = event.detail.selectedRows;
-        this.showRadioButtons = this.selectedRows.length > 0;
-    }
-
-    handleStatusChange(event) {
-        this.selectedStatus = event.detail.value;
-    }
-
-    handleUpdateStatus() {
-        const caseIds = this.selectedRows.map(row => row.Id);
-        updateCaseStatus({ caseIds: caseIds, newStatus: this.selectedStatus })
-            .then(result => {
-                // Handle success message or any other action
-                console.log('Cases updated successfully.');
-            })
-            .catch(error => {
-                // Handle error
-                console.error('Error updating cases:', error);
-            });
+        
+        update casesToUpdate;
     }
 }
