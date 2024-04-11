@@ -11,7 +11,7 @@ export default class CaseStatusUpdate extends LightningElement {
     @wire(getDirectorQueueCases)
     wiredCases({ error, data }) {
         if (data) {
-            this.cases = data;
+            this.cases = data.map(item => ({ ...item, selected: false }));
         } else if (error) {
             console.error('Error loading cases:', error);
         }
@@ -19,11 +19,16 @@ export default class CaseStatusUpdate extends LightningElement {
 
     handleCheckboxChange(event) {
         const caseId = event.target.value;
-        if (event.target.checked) {
-            this.selectedCaseIds.push(caseId);
-        } else {
-            this.selectedCaseIds = this.selectedCaseIds.filter(id => id !== caseId);
-        }
+        const checked = event.target.checked;
+        
+        this.cases = this.cases.map(item => {
+            if (item.Id === caseId) {
+                item.selected = checked;
+            }
+            return item;
+        });
+
+        this.selectedCaseIds = this.cases.filter(item => item.selected).map(item => item.Id);
     }
 
     handleStatusChange(event) {
@@ -43,13 +48,13 @@ export default class CaseStatusUpdate extends LightningElement {
         }
     }
 }
-<template>
+ <template>
     <lightning-card title="Cases in Director Queue" icon-name="standard:case">
         <lightning-layout>
             <template if:true={cases}>
                 <template for:each={cases} for:item="caseRec">
                     <div key={caseRec.Id}>
-                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={isSelected(caseRec.Id)} onchange={handleCheckboxChange}></lightning-input>
+                        <lightning-input type="checkbox" label={caseRec.Subject} value={caseRec.Id} checked={caseRec.selected} onchange={handleCheckboxChange}></lightning-input>
                     </div>
                 </template>
                 <div style="margin-top: 10px;">
