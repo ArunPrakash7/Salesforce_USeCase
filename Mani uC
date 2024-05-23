@@ -1,20 +1,6 @@
-<template>
-    <lightning-card title="Preview User Details">
-        <div class="slds-m-around_medium">
-            <p><strong>Name:</strong> {name}</p>
-            <p><strong>Email:</strong> {email}</p>
-            <p><strong>Phone:</strong> {phone}</p>
-        </div>
-        <div class="slds-m-around_medium">
-            <lightning-button label="Back" onclick={handleBack}></lightning-button>
-            <lightning-button label="Finish" onclick={handleFinish}></lightning-button>
-        </div>
-    </lightning-card>
-</template>
-
-<script>
 import { LightningElement, api } from 'lwc';
 import { createRecord } from 'lightning/uiRecordApi';
+import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import CONTACT_OBJECT from '@salesforce/schema/Contact';
 import NAME_FIELD from '@salesforce/schema/Contact.Name';
 import EMAIL_FIELD from '@salesforce/schema/Contact.Email';
@@ -36,14 +22,28 @@ export default class PreviewDetails extends LightningElement {
         fields[PHONE_FIELD.fieldApiName] = this.phone;
 
         const recordInput = { apiName: CONTACT_OBJECT.objectApiName, fields };
+
         createRecord(recordInput)
             .then(contact => {
-                console.log('contact created Id', contact.id);
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Success',
+                        message: 'Contact created successfully',
+                        variant: 'success'
+                    })
+                );
                 this.dispatchEvent(new CustomEvent('finish'));
                 this.resetForm();
             })
             .catch(error => {
-                console.error('Error creating contact:', error);
+                this.dispatchEvent(
+                    new ShowToastEvent({
+                        title: 'Error creating contact',
+                        message: error.body.message,
+                        variant: 'error'
+                    })
+                );
+                console.error('Error creating contact:', error.body.message);
             });
     }
 
@@ -53,4 +53,17 @@ export default class PreviewDetails extends LightningElement {
         this.phone = '';
     }
 }
-</script>
+
+<template>
+    <lightning-card title="Preview User Details">
+        <div class="slds-m-around_medium">
+            <p><strong>Name:</strong> {name}</p>
+            <p><strong>Email:</strong> {email}</p>
+            <p><strong>Phone:</strong> {phone}</p>
+        </div>
+        <div class="slds-m-around_medium">
+            <lightning-button label="Back" onclick={handleBack}></lightning-button>
+            <lightning-button label="Finish" onclick={handleFinish}></lightning-button>
+        </div>
+    </lightning-card>
+</template>
