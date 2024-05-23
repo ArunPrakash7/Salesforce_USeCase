@@ -11,32 +11,34 @@
         </div>
     </lightning-card>
 </template>
+
+<script>
 import { LightningElement, api } from 'lwc';
 import { createRecord } from 'lightning/uiRecordApi';
 import CONTACT_OBJECT from '@salesforce/schema/Contact';
 import NAME_FIELD from '@salesforce/schema/Contact.Name';
 import EMAIL_FIELD from '@salesforce/schema/Contact.Email';
 import PHONE_FIELD from '@salesforce/schema/Contact.Phone';
- 
+
 export default class PreviewDetails extends LightningElement {
     @api name;
     @api email;
     @api phone;
- 
+
     handleBack() {
         this.dispatchEvent(new CustomEvent('back'));
     }
- 
+
     handleFinish() {
         const fields = {};
         fields[NAME_FIELD.fieldApiName] = this.name;
         fields[EMAIL_FIELD.fieldApiName] = this.email;
         fields[PHONE_FIELD.fieldApiName] = this.phone;
- 
+
         const recordInput = { apiName: CONTACT_OBJECT.objectApiName, fields };
         createRecord(recordInput)
-            .then(contactId => {
-                console.log('contact created Id',contactId)
+            .then(contact => {
+                console.log('contact created Id', contact.id);
                 this.dispatchEvent(new CustomEvent('finish'));
                 this.resetForm();
             })
@@ -44,4 +46,11 @@ export default class PreviewDetails extends LightningElement {
                 console.error('Error creating contact:', error);
             });
     }
+
+    resetForm() {
+        this.name = '';
+        this.email = '';
+        this.phone = '';
+    }
 }
+</script>
