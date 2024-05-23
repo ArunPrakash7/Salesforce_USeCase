@@ -1,71 +1,47 @@
-import { LightningElement, track } from 'lwc';
+<template>
+    <lightning-card title="Preview User Details">
+        <div class="slds-m-around_medium">
+            <p><strong>Name:</strong> {name}</p>
+            <p><strong>Email:</strong> {email}</p>
+            <p><strong>Phone:</strong> {phone}</p>
+        </div>
+        <div class="slds-m-around_medium">
+            <lightning-button label="Back" onclick={handleBack}></lightning-button>
+            <lightning-button label="Finish" onclick={handleFinish}></lightning-button>
+        </div>
+    </lightning-card>
+</template>
+import { LightningElement, api } from 'lwc';
+import { createRecord } from 'lightning/uiRecordApi';
+import CONTACT_OBJECT from '@salesforce/schema/Contact';
+import NAME_FIELD from '@salesforce/schema/Contact.Name';
+import EMAIL_FIELD from '@salesforce/schema/Contact.Email';
+import PHONE_FIELD from '@salesforce/schema/Contact.Phone';
  
-export default class UserDetails extends LightningElement {
-    @track showForm = true;
-    @track showPreview = false;
- 
-    @track name = '';
-    @track email = '';
-    @track phone = '';
- 
-    handleInputChange(event) {
-        const field = event.target.label.toLowerCase();
-        this[field] = event.target.value;
-    }
- 
-    handlePreview() {
-        if (this.isValid()) {
-            this.showForm = false;
-            this.showPreview = true;
-        }
-    }
+export default class PreviewDetails extends LightningElement {
+    @api name;
+    @api email;
+    @api phone;
  
     handleBack() {
-        this.showForm = true;
-        this.showPreview = false;
+        this.dispatchEvent(new CustomEvent('back'));
     }
  
     handleFinish() {
-        // Record creation logic is handled in the preview component
-        this.showForm = true;
-        this.showPreview = false;
-    }
+        const fields = {};
+        fields[NAME_FIELD.fieldApiName] = this.name;
+        fields[EMAIL_FIELD.fieldApiName] = this.email;
+        fields[PHONE_FIELD.fieldApiName] = this.phone;
  
-    isValid() {
-        const emailPattern = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
-        const phonePattern = /^\d{10}$/;
-        const namePattern = /^[a-zA-Z]+$/;
-
-        if(!namePattern.test(this.name)){
-            alert('name must be alphabets only')
-            return false;
-        }
- 
-        if (!emailPattern.test(this.email)) {
-            alert('Email must end with @gmail.com');
-            return false;
-        }
-        if (!phonePattern.test(this.phone)) {
-            alert('Phone number must be 10 digits');
-            return false;
-        }
-        return true;
+        const recordInput = { apiName: CONTACT_OBJECT.objectApiName, fields };
+        createRecord(recordInput)
+            .then(contactId => {
+                console.log('contact created Id',contactId)
+                this.dispatchEvent(new CustomEvent('finish'));
+                this.resetForm();
+            })
+            .catch(error => {
+                console.error('Error creating contact:', error);
+            });
     }
 }
-<template>
-    <template if:true={showForm}>
-        <lightning-card title="Enter User Details">
-            <div class="slds-m-around_medium">
-                <lightning-input label="Name" value={name} required onchange={handleInputChange}></lightning-input>
-                <lightning-input label="Email" type="email" value={email} onchange={handleInputChange}></lightning-input>
-                <lightning-input label="Phone" type="tel" value={phone} onchange={handleInputChange}></lightning-input>
-            </div>
-            <div class="slds-m-around_medium">
-                <lightning-button label="Preview" onclick={handlePreview}></lightning-button>
-            </div>
-        </lightning-card>
-    </template>
-    <template if:true={showPreview}>
-        <c-preview-details name={name} email={email} phone={phone} onback={handleBack} onfinish={handleFinish}></c-preview-details>
-    </template>
-</template>
