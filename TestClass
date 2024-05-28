@@ -1,0 +1,19 @@
+public class opportunitytask {
+    public static void updatedelegated(List<Opportunity> opp){
+        set<Id> oppids = new set<Id>();
+        for(Opportunity op:opp){
+            if(op.AccountId!=null){  
+                oppids.add(op.AccountId);
+            }
+        }
+        Map<Id,Account> acclist= new Map<Id,Account>([select id,isdelegated__c from Account where Id IN :oppids]);
+        for(Opportunity op1:opp){
+            if(op1.AccountId!=null){
+                Account ac = acclist.get(op1.AccountId);
+                if(ac.isdelegated__c == true && op1.Type != 'Delegated'){
+                    op1.adderror('Delegated account should have delegated opportunities');
+                }
+            }
+        }
+    }
+}
