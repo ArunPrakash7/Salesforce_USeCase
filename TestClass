@@ -1,19 +1,23 @@
 @isTest
 public class opportunitytaskTest {
     static testMethod void testUpdatedelegated() {
-        // Create test data: Accounts with delegated flag set to true
+        // Create test data: Accounts with delegated flag set to true and false
         List<Account> testAccounts = new List<Account>();
         for(Integer i = 0; i < 5; i++) {
-            Account acc = new Account(Name = 'Test Account ' + i, isdelegated__c = true);
-            testAccounts.add(acc);
+            Account accTrue = new Account(Name = 'Test Account Delegated ' + i, isdelegated__c = true);
+            Account accFalse = new Account(Name = 'Test Account Non-Delegated ' + i, isdelegated__c = false);
+            testAccounts.add(accTrue);
+            testAccounts.add(accFalse);
         }
         insert testAccounts;
         
         // Create test data: Opportunities associated with the test accounts
         List<Opportunity> testOpps = new List<Opportunity>();
-        for(Integer i = 0; i < 5; i++) {
-            Opportunity opp = new Opportunity(Name = 'Test Opportunity ' + i, StageName = 'Prospecting', AccountId = testAccounts[i].Id, Type = 'New Business');
-            testOpps.add(opp);
+        for(Account acc : testAccounts) {
+            Opportunity oppTrue = new Opportunity(Name = 'Test Opportunity Delegated', StageName = 'Prospecting', AccountId = acc.Id, Type = 'New Business');
+            Opportunity oppFalse = new Opportunity(Name = 'Test Opportunity Non-Delegated', StageName = 'Prospecting', AccountId = acc.Id, Type = 'New Business');
+            testOpps.add(oppTrue);
+            testOpps.add(oppFalse);
         }
         insert testOpps;
         
@@ -24,12 +28,15 @@ public class opportunitytaskTest {
         
         // Verify that delegated opportunities have been properly validated
         for(Opportunity opp : testOpps) {
-            if(opp.AccountId != null && testAccounts[0].Id == opp.AccountId) {
-                // Delegated account with non-delegated opportunity should throw an error
-                System.assertEquals('Delegated account should have delegated opportunities', opp.getErrors()[0].getMessage());
-            } else {
-                // Other opportunities should not throw an error
-                System.assert(opp.getErrors().size() == 0);
+            if(opp.AccountId != null) {
+                Account acc = [SELECT isdelegated__c FROM Account WHERE Id = :opp.AccountId LIMIT 1];
+                if(acc.isdelegated__c == true && opp.Type != 'Delegated') {
+                    // Delegated account with non-delegated opportunity should throw an error
+                    System.assertEquals('Delegated account should have delegated opportunities', opp.getErrors()[0].getMessage());
+                } else {
+                    // Other opportunities should not throw an error
+                    System.assert(opp.getErrors().size() == 0);
+                }
             }
         }
     }
