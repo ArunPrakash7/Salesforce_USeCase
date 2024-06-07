@@ -1,0 +1,68 @@
+// CourseController.cls
+public with sharing class CourseController {
+    @AuraEnabled
+    public static void createCourse(String courseName, String instructorName, String duration, Integer numSeats) {
+        // Your logic to create the course record
+        // Example:
+        Course__c newCourse = new Course__c();
+        newCourse.Name = courseName;
+        newCourse.Instructor__c = instructorName;
+        newCourse.Duration__c = duration;
+        newCourse.Number_of_Seats__c = numSeats;
+        insert newCourse;
+    }
+}
+
+// createCourseForm.js
+import { LightningElement, track } from 'lwc';
+import createCourse from '@salesforce/apex/CourseController.createCourse';
+
+export default class CreateCourseForm extends LightningElement {
+    @track courseName;
+    @track instructorName;
+    @track duration;
+    @track numSeats;
+
+    handleCourseNameChange(event) {
+        this.courseName = event.target.value;
+    }
+
+    handleInstructorNameChange(event) {
+        this.instructorName = event.target.value;
+    }
+
+    handleDurationChange(event) {
+        this.duration = event.target.value;
+    }
+
+    handleNumSeatsChange(event) {
+        this.numSeats = event.target.value;
+    }
+
+    createCourse() {
+        createCourse({ courseName: this.courseName, instructorName: this.instructorName, duration: this.duration, numSeats: this.numSeats })
+            .then(result => {
+                // handle success
+                console.log('Course created successfully:', result);
+            })
+            .catch(error => {
+                // handle error
+                console.error('Error creating course:', error);
+            });
+    }
+}
+
+<!-- createCourseForm.html -->
+<template>
+    <lightning-card title="Create Course">
+        <div class="slds-m-around_medium">
+            <lightning-input label="Course Name" value={courseName} onchange={handleCourseNameChange}></lightning-input>
+            <lightning-input label="Instructor Name" value={instructorName} onchange={handleInstructorNameChange}></lightning-input>
+            <lightning-input label="Duration" value={duration} onchange={handleDurationChange}></lightning-input>
+            <lightning-input type="number" label="Number of Seats" value={numSeats} onchange={handleNumSeatsChange}></lightning-input>
+            <div class="slds-m-top_medium">
+                <lightning-button variant="brand" label="Create Course" onclick={createCourse}></lightning-button>
+            </div>
+        </div>
+    </lightning-card>
+</template>
