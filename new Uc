@@ -1,151 +1,41 @@
-import { LightningElement, track } from 'lwc';
+public class ClaimApproval {
+    public void processClaims() {
+        // Retrieve all claims with a status of "Submitted"
+        List<Claim__c> claims = [SELECT Id, Claim_Amount__c, Status__c, Claimant_Email__c FROM Claim__c WHERE Status__c = 'Submitted'];
 
-export default class SearchComponent extends LightningElement {
-    @track selectedStage = 'All';
-    @track selectedSortField = 'Name';
-    @track selectedSortOrder = 'ASC';
+        // Define the approved limit
+        Decimal approvedLimit = 10000;
 
-    get stageOptions() {
-        return [
-            { label: 'All', value: 'All' },
-            { label: 'Prospecting', value: 'Prospecting' },
-            { label: 'Qualification', value: 'Qualification' },
-            { label: 'Needs Analysis', value: 'Needs Analysis' },
-            // Add other stages
-        ];
-    }
+        // Get the Manager's User Id dynamically
+        User manager = [SELECT Id FROM User WHERE Name = 'John Walker' LIMIT 1];
 
-    get sortFieldOptions() {
-        return [
-            { label: 'Name', value: 'Name' },
-            { label: 'Amount', value: 'Amount' },
-            { label: 'ExpectedRevenue', value: 'ExpectedRevenue' },
-            { label: 'Close Date', value: 'CloseDate' }
-            // Add other fields as needed
-        ];
-    }
-
-    get sortOrderOptions() {
-        return [
-            { label: 'Ascending', value: 'ASC' },
-            { label: 'Descending', value: 'DESC' }
-        ];
-    }
-
-    handleStageChange(event) {
-        this.selectedStage = event.detail.value;
-    }
-
-    handleSortFieldChange(event) {
-        this.selectedSortField = event.detail.value;
-    }
-
-    handleSortOrderChange(event) {
-        this.selectedSortOrder = event.detail.value;
-    }
-}
-
-<template>
-    <lightning-card title="Find opportunity">
-        <div class="slds-m-around_medium">
-            <lightning-combobox
-                label="Get Record by Stage"
-                value={selectedStage}
-                placeholder="Select Stage"
-                options={stageOptions}
-                onchange={handleStageChange}>
-            </lightning-combobox>
-            
-            <lightning-combobox
-                label="Sort by Field"
-                value={selectedSortField}
-                placeholder="Select Field"
-                options={sortFieldOptions}
-                onchange={handleSortFieldChange}>
-            </lightning-combobox>
-            
-            <lightning-combobox
-                label="Sort Order"
-                value={selectedSortOrder}
-                placeholder="Select Order"
-                options={sortOrderOptions}
-                onchange={handleSortOrderChange}>
-            </lightning-combobox>
-        </div>
-        
-        <c-result-component
-            stage={selectedStage}
-            sort-field={selectedSortField}
-            sort-order={selectedSortOrder}>
-        </c-result-component>
-    </lightning-card>
-</template>
-
-public with sharing class OpportunityController {
-    
-    @AuraEnabled(cacheable=true)
-    public static List<Opportunity> getOpportunities(String stageName, String sortByField, String sortOrder) {
-        String query = 'SELECT Id, Name, Amount, ExpectedRevenue, CloseDate FROM Opportunity';
-        
-        if (stageName != 'All') {
-            query += ' WHERE StageName = :stageName';
+        // Loop through each claim
+        for (Claim__c claim : claims) {
+            if (claim.Claim_Amount__c <= approvedLimit) {
+                // Approve the claim
+                claim.Status__c = 'Approved';
+                // Send an email notification to the claimant
+                sendApprovalEmail(claim.Claimant_Email__c);
+            } else {
+                // Mark the claim as "Requires Manual Review"
+                claim.Status__c = 'Requires Manual Review';
+                // Assign the claim to the manager
+                claim.OwnerId = manager.Id;
+            }
         }
-        
-        if (sortByField != null && sortOrder != null) {
-            query += ' ORDER BY ' + sortByField + ' ' + sortOrder;
-        }
-        
-        return Database.query(query);
-    }
-}
 
-<template>
-    <lightning-card title="Opportunity">
-        <lightning-datatable
-            key-field="Id"
-            data={opportunities}
-            columns={columns}
-            hide-checkbox-column="true">
-        </lightning-datatable>
-    </lightning-card>
-</template>
-
-import { LightningElement, api, track, wire } from 'lwc';
-import getOpportunities from '@salesforce/apex/OpportunityController.getOpportunities';
-
-export default class ResultComponent extends LightningElement {
-    @api stage;
-    @api sortField;
-    @api sortOrder;
-
-    @track opportunities;
-
-    @wire(getOpportunities, { stageName: '$stage', sortByField: '$sortField', sortOrder: '$sortOrder' })
-    wiredOpportunities({ error, data }) {
-        if (data) {
-            this.opportunities = data;
-        } else if (error) {
-            this.opportunities = undefined;
-            console.error('Error:', error);
-        }
+        // Update the claims
+        update claims;
     }
 
-    get columns() {
-        return [
-            { label: 'Id', fieldName: 'Id' },
-            { label: 'Name', fieldName: 'Name' },
-            { label: 'Amount', fieldName: 'Amount' },
-            { label: 'Expected Revenue', fieldName: 'ExpectedRevenue' },
-            { label: 'Close Date', fieldName: 'CloseDate' }
-        ];
+    private void sendApprovalEmail(String emailAddress) {
+        // Construct the email
+        Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
+        mail.setToAddresses(new String[] {emailAddress});
+        mail.setSubject('Your Claim has been Approved');
+        mail.setPlainTextBody('Dear Claimant, your claim has been approved. Thank you for your patience.');
+
+        // Send the email
+        Messaging.sendEmail(new Messaging.SingleEmailMessage[] { mail });
     }
-}
-
-
-.slds-m-around_medium {
-    margin: 1rem;
-}
-
-.lightning-card {
-    margin-top: 1rem;
 }
