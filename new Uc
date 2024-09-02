@@ -1,41 +1,471 @@
-public class ClaimApproval {
-    public void processClaims() {
-        // Retrieve all claims with a status of "Submitted"
-        List<Claim__c> claims = [SELECT Id, Claim_Amount__c, Status__c, Claimant_Email__c FROM Claim__c WHERE Status__c = 'Submitted'];
+@RestResource(UrlMapping='/v1/patients/*/cases')
+global with sharing class APICO_PatientsCases extends APICO_MasterHandler {
 
-        // Define the approved limit
-        Decimal approvedLimit = 10000;
+    private static final Integer FUNCTIONAL_ID_URL_PATH_INDEX = 3;
 
-        // Get the Manager's User Id dynamically
-        User manager = [SELECT Id FROM User WHERE Name = 'John Walker' LIMIT 1];
+    /**
+     * @author Ideal GABALDA
+     * @description Create a case to update patient information
+     */
+    @HttpPut
+    global static void createCase() {
+        APICO_MasterHandler handler = new APICO_PatientsCases();
+        handler.callWS(RestContext.request);
+    }
 
-        // Loop through each claim
-        for (Claim__c claim : claims) {
-            if (claim.Claim_Amount__c <= approvedLimit) {
-                // Approve the claim
-                claim.Status__c = 'Approved';
-                // Send an email notification to the claimant
-                sendApprovalEmail(claim.Claimant_Email__c);
+    /**
+     * @author Cognizant
+     * @description Get the related cases associated with a patient account
+     */
+    @HttpGet
+    global static void getCases() {
+        APICO_MasterHandler handler = new APICO_PatientRelatedCases();
+        handler.callWS(RestContext.request);
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description Put implementation of the endpoint to create a case to update patient information
+     * @param request RestRequest of the contex
+     * @return APICO_MasterHandler.ResponseBody WS response
+     */
+    public override APICO_MasterHandler.ResponseBody putImpl(RestRequest request) {
+        system.debug('APICO_PatientsCases CALLED');
+        APICO_MasterHandler.ResponseBody response = new APICO_MasterHandler.ResponseBody();
+        String functionalId = APICO_MasterHandler.getPathVariable(FUNCTIONAL_ID_URL_PATH_INDEX);
+        List<Account> patients = [SELECT Id, TEKCO_CountryLanguage__c FROM Account WHERE TEKCO_FunctionalId__c = :functionalId];
+        if (APICO_MasterHandler.isMissingParam(
+            patients,
+            response,
+            Label.APICO_ErrorPatientNotFound,
+            APICO_MasterHandler.ERROR_CODE_PATIENT_NOT_FOUND
+        )) {
+            return response;
+        }
+
+        RequestBody body = (RequestBody) JSON.deserialize(request.requestBody.toString(), RequestBody.class);
+        List<PASCO_Therapy__c> therapies = [
+            SELECT Id
+            FROM PASCO_Therapy__c
+            WHERE TEKCO_FunctionalId__c = :body.therapy
+            LIMIT 1
+        ];
+
+        if (!String.isBlank(body.appointment) && APICO_MasterHandler.isMissingParam(
+            therapies,
+            response,
+            Label.APICO_ErrorRecordNotFound,
+            APICO_MasterHandler.ERROR_CODE_THERAPY_NOT_FOUND
+        )) {
+            return response;
+        }
+
+        List<ServiceAppointment> serviceAppointments;
+        if (String.isNotBlank(body.appointment)) {
+            serviceAppointments = [
+                    SELECT Id
+                    FROM ServiceAppointment
+                    WHERE TEKCO_FunctionalId__c = :body.appointment
+                    LIMIT 1
+            ];
+        }
+
+        if(body.subject == CaseHelper.PERSONAL_INFORMATION_CHANGE_REQUEST && patients.get(0).TEKCO_CountryLanguage__c == AccountHelper.COMMUNICATION_LANGUAGE_BR)
+            body.subject = System.Label.get('','KRN_CaseSubject_PERSONAL_INFORMATION_CHANGE_REQUEST','pt-br');
+        
+        Case aCase = new Case(
+            RecordTypeId = CaseHelper.CORE_RT_ID,
+            AccountId = patients.get(0).Id,
+            Type = body.type,
+            CASCO_SubType__c = body.subType,
+            Subject = body.subject,
+            Description = body.description,
+            TEKCO_ExternalId__c = body.externalSystemId,
+            Origin = body.origin,
+            CASCO_CaseRequester__c = body.caseRequester,
+            Status = CaseHelper.STATUS_NEW,
+            CASCO_Therapy__c = !therapies.isEmpty() ? therapies.get(0).Id : null,
+            Priority = body.priority,
+            KMACO_AppointmentToReschedule__c = serviceAppointments?.get(0).Id
+        );
+        insert aCase;
+
+        response.success = true;
+        response.output = new ResponseBody(aCase.Id);
+        return response;
+    }
+
+    @TestVisible
+    private class RequestBody {
+        @TestVisible private String type;
+        @TestVisible private String subType;
+        @TestVisible private String subject;
+        @TestVisible private String description;
+        @TestVisible private String externalSystemId;
+        @TestVisible private String origin;
+        @TestVisible private String caseRequester;
+        @TestVisible private String therapy;
+        @TestVisible private String appointment;
+        @TestVisible private String priority;
+    }
+
+    private class ResponseBody {
+        private String sfCaseId;
+
+        private ResponseBody(String caseId) {
+            this.sfCaseId = caseId;
+        }
+    }
+}
+
+
+public virtual class APICO_MasterHandler {
+    private static final String IMPLEMENTATION_ERROR_MESSAGE = 'You should implement {0} method';
+    private static final String IMPLEMENTATION_ERROR_EXCEPTION = 'Method invalid';
+    @TestVisible
+    private static Integer MAX_PAGINATION_LIMIT = 1000;
+
+    public static final String ERROR_CODE_EXCEPTION = 'SF-1';
+    public static final String ERROR_CODE_FHIR_ID_NOT_FOUND = 'SF-2';
+    public static final String ERROR_CODE_PATIENT_NOT_FOUND = 'SF-3';
+    public static final String ERROR_CODE_MISSING_THERAPY_GROUP = 'SF-4';
+    public static final String ERROR_CODE_MISSING_DAYS_BEFORE_EXPIRATION = 'SF-5';
+    public static final String ERROR_CODE_MISSING_CREATED_DATE = 'SF-6';
+    public static final String ERROR_CODE_MISSING_TYPE = 'SF-7';
+    public static final String ERROR_CODE_MISSING_START_DATE = 'SF-8';
+    public static final String ERROR_CODE_TASK_NOT_FOUND = 'SF-9';
+    public static final String ERROR_CODE_QTG_NOT_FOUND = 'SF-10';
+    public static final String ERROR_CODE_THERAPY_NOT_FOUND = 'SF-11';
+    public static final String ERROR_CODE_SERVICE_APPOINTMENT_NOT_FOUND = 'SF-12';
+    public static final String ERROR_CODE_SERVICE_RESOURCE_NOT_VALID = 'SF-13';
+
+    public static final String HEADER_PARAM_ENTITY_FHIR_ID = 'fhirEntityId';
+    public static final String PAGINATION_PARAM_OFFSET = 'offset';
+    public static final String PAGINATION_PARAM_LIMIT = 'limit';
+
+    public static final String QUERY_PARAM_MODE = 'mode';
+    public static final String MODE_LIGHT = 'light';
+    public static final String MODE_EXTENDED = 'extended';
+
+    public static final String QUERY_PARAM_START_DATE = 'startDate';
+    public static final String QUERY_PARAM_END_DATE = 'endDate';
+
+    /**
+     * @author Ideal GABALDA
+     * @description POST implementation of the endpoint
+     * @param restRequest RestRequest of the contex
+     * @return Object WS response
+     */
+    public virtual ResponseBody postImpl(RestRequest restRequest) {
+        throw new WSException(String.format(IMPLEMENTATION_ERROR_MESSAGE, new List<String>{ HttpHelper.METHOD_POST }));
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description GET implementation of the endpoint
+     * @param restRequest RestRequest of the contex
+     * @return Object WS response
+     */
+    public virtual ResponseBody getImpl(RestRequest restRequest) {
+        throw new WSException(String.format(IMPLEMENTATION_ERROR_MESSAGE, new List<String>{ HttpHelper.METHOD_GET }));
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description PUT implementation of the endpoint
+     * @param restRequest RestRequest of the contex
+     * @return Object WS response
+     */
+    public virtual ResponseBody putImpl(RestRequest restRequest) {
+        throw new WSException(String.format(IMPLEMENTATION_ERROR_MESSAGE, new List<String>{ HttpHelper.METHOD_PUT }));
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description PATCH implementation of the endpoint
+     * @param restRequest RestRequest of the contex
+     * @return Object WS response
+     */
+    public virtual ResponseBody patchImpl(RestRequest restRequest) {
+        throw new WSException(String.format(IMPLEMENTATION_ERROR_MESSAGE, new List<String>{ HttpHelper.METHOD_PATCH }));
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description Determine wich implementation method to use
+     * @param restRequest RestRequest of the contex
+     */
+    public void callWS(RestRequest restRequest) {
+        Savepoint sp = Database.setSavepoint();
+        RestResponse restResponse = RestContext.response;
+        restResponse.addHeader(HttpHelper.HEADER_KEY_CONTENT_TYPE, HttpHelper.HEADER_CONTENT_TYPE_APPLICATION_JSON);
+        restResponse.statusCode = HttpHelper.HTTP_RESPONSE_CODE_200_OK;
+
+        ResponseBody result;
+        try {
+            if (restRequest.httpMethod == HttpHelper.METHOD_POST) {
+                result = postImpl(restRequest);
+            } else if (restRequest.httpMethod == HttpHelper.METHOD_GET) {
+                result = getImpl(restRequest);
+            } else if (restRequest.httpMethod == HttpHelper.METHOD_PUT) {
+                result = putImpl(restRequest);
+            } else if (restRequest.httpMethod == HttpHelper.METHOD_PATCH) {
+                result = patchImpl(restRequest);
             } else {
-                // Mark the claim as "Requires Manual Review"
-                claim.Status__c = 'Requires Manual Review';
-                // Assign the claim to the manager
-                claim.OwnerId = manager.Id;
+                throw new WSException(IMPLEMENTATION_ERROR_EXCEPTION);
+            }
+        } catch (Exception e) {
+            restResponse.statusCode = HttpHelper.HTTP_RESPONSE_CODE_500_INTERNAL_ERROR;
+            result = new ResponseBody();
+            result.success = false;
+            result.message = e.getMessage();
+            result.code = ERROR_CODE_EXCEPTION;
+            Database.rollback(sp);
+        } finally {
+            restResponse.responseBody = Blob.valueOf(JSON.serializePretty(result, true));
+        }
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description Get a variable in the URI path regarding its index
+     * @param indexInPath Index of the variable we wan to get in the path
+     * @return String The variable corresponding to the index in the path
+     */
+    public static String getPathVariable(Integer indexInPath) {
+        return RestContext.request.requestURI.split('/').get(indexInPath);
+    }
+
+    /**
+     * @author Ideal GABALDA
+     * @description Indicates if the param is missing and set response error
+     * @param paramToTest Param to test if it is missing
+     * @param response Response to set with errors
+     * @param errorMessage Error message to set on the response
+     * @param errorCode Error code to set on the response
+     * @return Boolean True if the param is missing, false otherwise
+     */
+    public static Boolean isMissingParam(
+        Object paramToTest,
+        ResponseBody response,
+        String errorMessage,
+        String errorCode
+    ) {
+        Boolean isMissingParam = paramToTest == null;
+        if (paramToTest instanceof String) {
+            isMissingParam = String.isBlank((String) paramToTest);
+        } else if (paramToTest instanceof List<Object>) {
+            isMissingParam = ((List<Object>) paramToTest).isEmpty();
+        }
+        if (isMissingParam) {
+            RestContext.response.statusCode = HttpHelper.HTTP_RESPONSE_CODE_500_INTERNAL_ERROR;
+            response.success = false;
+            response.message = errorMessage;
+            response.code = errorCode;
+        }
+        return isMissingParam;
+    }
+
+    public class WSException extends Exception {
+    }
+
+    public class ResponseBody {
+        public Object output;
+        public Boolean success;
+        public String message;
+        public String code;
+    }
+
+    public class Pagination {
+        public Integer totalCount;
+        public Integer offset;
+        public Integer pageLimit;
+
+        public Pagination(Integer totalCount, String offset, String pageLimit) {
+            this.totalCount = totalCount;
+            this.offset = (String.isNotBlank(offset) && Integer.valueOf(offset) > 0) ? Integer.valueOf(offset) : 0;
+            this.pageLimit = (String.isNotBlank(pageLimit) && Integer.valueOf(pageLimit) < totalCount)
+                ? Integer.valueOf(pageLimit)
+                : totalCount;
+            if (this.pageLimit >= MAX_PAGINATION_LIMIT) {
+                this.pageLimit = MAX_PAGINATION_LIMIT;
             }
         }
 
-        // Update the claims
-        update claims;
+        /**
+         * @author Ideal GABALDA
+         * @description Get the records regarding the pagination from the entire list of records
+         * @param allRecords All records
+         * @return List<Object> List of records regarding the pagination (start index and end index)
+         */
+        public List<Object> getPaginatedRecords(List<Object> allRecords) {
+            List<Object> paginatedRecords = new List<Object>();
+            Integer maxIndex = ((this.offset + this.pageLimit) < this.totalCount)
+                ? (this.offset + this.pageLimit)
+                : this.totalCount;
+            for (Integer i = this.offset; i < maxIndex; i++) {
+                paginatedRecords.add(allRecords.get(i));
+            }
+            return paginatedRecords;
+        }
+    }
+}
+
+
+global with sharing class APICO_PatientRelatedCases extends APICO_MasterHandler {
+    public static final String ERROR_CODE_MISSING_SUB_TYPE = 'SF-14';
+    private static final Integer FUNCTIONAL_ID_URL_PATH_INDEX = 3;
+    @TestVisible private static final String PARAM_CREATION_DATE = 'creationDate';
+	@TestVisible private static final String PARAM_CASE_SUBTYPE = 'subType';
+    @TestVisible private static final String PARAM_CASE_TYPE = 'type';
+
+    /**
+     * @author Cognizant
+     * @description Put implementation of the endpoint to fetch the cases relaetd toa petient record
+     * @param request RestRequest of the contex
+     * @return APICO_MasterHandler.ResponseBody WS response
+     */
+    public override APICO_MasterHandler.ResponseBody getImpl(RestRequest restRequest){
+        system.debug('APICO_PatientRelatedCases CALLED');
+        APICO_MasterHandler.ResponseBody response = new APICO_MasterHandler.ResponseBody();
+        String entityFhirId = restRequest.headers.get(APICO_MasterHandler.HEADER_PARAM_ENTITY_FHIR_ID);
+        String accountFunctionalId = APICO_MasterHandler.getPathVariable(FUNCTIONAL_ID_URL_PATH_INDEX);
+        String creationDate = restRequest.params.get(PARAM_CREATION_DATE);
+        String subType = restRequest.params.get(PARAM_CASE_SUBTYPE);
+        String typeValue = restRequest.params.get(PARAM_CASE_TYPE);
+        system.debug('entityFhirId -->'+entityFhirId);
+        system.debug('accountFunctionalId -->'+accountFunctionalId);
+        system.debug('subType -->'+subType);
+        system.debug('typeValue -->'+typeValue);
+
+        List<TEKCO_CountryBrandSetting__mdt> countryBrandSettings = [
+            SELECT TEKCO_Brand__c
+            FROM TEKCO_CountryBrandSetting__mdt
+            WHERE KRN_FHIRId__c = :entityFhirId
+            LIMIT 1
+        ];
+        if (Test.isRunningTest() && String.isBlank(entityFhirId)) {
+            countryBrandSettings = new List<TEKCO_CountryBrandSetting__mdt>{
+                new TEKCO_CountryBrandSetting__mdt(TEKCO_Brand__c = GlobalConstants.BRAND_001)
+            };
+        }
+        system.debug('countryBrandSettings -->'+countryBrandSettings);
+        if (APICO_MasterHandler.isMissingParam(
+            countryBrandSettings,
+            response,
+            Label.APICO_ErrorFhirIdNotFound,
+            APICO_MasterHandler.ERROR_CODE_FHIR_ID_NOT_FOUND
+        )) {
+            return response;
+        }
+        
+        List<Account> patients = [SELECT Id 
+                                  FROM Account 
+                                  WHERE TEKCO_FunctionalId__c = :accountFunctionalId LIMIT 1];
+        if (APICO_MasterHandler.isMissingParam(
+            patients, 
+            response,
+            Label.APICO_ErrorPatientNotFound,
+            APICO_MasterHandler.ERROR_CODE_PATIENT_NOT_FOUND)) 
+        {
+            return response;
+        }
+
+        if (APICO_MasterHandler.isMissingParam(
+            typeValue, 
+            response,
+            Label.APICO_ErrorTypeNotFound,
+            APICO_MasterHandler.ERROR_CODE_MISSING_TYPE)) 
+        {
+            return response;
+        }
+        
+        if (APICO_MasterHandler.isMissingParam(
+            subType, 
+            response,
+            Label.APICO_ErrorSubTypeNotFound,
+            ERROR_CODE_MISSING_SUB_TYPE)) 
+        {
+            return response;
+        }
+        
+        List<CaseData> lstRelatedCases = new List<CaseData>();
+        List<Case> lstCases = new List<Case>();
+        if(creationDate != NULL){
+            lstCases = [SELECT Id, Type, CASCO_SubType__c, Subject, CreatedDate, LastModifiedDate,
+                            Description, Origin, CaseNumber, Status, CASCO_CaseRequester__c
+                        FROM Case
+                        WHERE AccountId = :patients[0].Id
+                        AND Type =: typeValue
+                        AND CASCO_SubType__c =: subType
+                        AND DAY_ONLY(CreatedDate) =: Date.valueOf(creationDate)];
+        }
+        else{
+            lstCases = [SELECT Id, Type, CASCO_SubType__c, Subject, CreatedDate, LastModifiedDate,
+                            Description, Origin, CaseNumber, Status, CASCO_CaseRequester__c
+                        FROM Case
+                        WHERE AccountId = :patients[0].Id
+                        AND Type =: typeValue
+                        AND CASCO_SubType__c =: subType];
+        }
+        for(Case c: lstCases){
+            lstRelatedCases.add(new CaseData(c));
+        }
+
+        MetaData metadatObj = new MetaData();
+        metadatObj.totalCount = lstRelatedCases.size();
+        metadatObj.pageLimit = 2;
+        metadatObj.offset = 0;
+
+        OutPut outputObj = new OutPut();
+        outputObj.cases = lstRelatedCases;
+        outputObj.metadata = metadatObj;
+
+        response.success = true;
+        response.output = outputObj;
+
+        return response;
+    }
+	
+    @TestVisible
+    private class OutPut{
+        @TestVisible private List<CaseData> cases;
+        @TestVisible private MetaData metadata;
     }
 
-    private void sendApprovalEmail(String emailAddress) {
-        // Construct the email
-        Messaging.SingleEmailMessage mail = new Messaging.SingleEmailMessage();
-        mail.setToAddresses(new String[] {emailAddress});
-        mail.setSubject('Your Claim has been Approved');
-        mail.setPlainTextBody('Dear Claimant, your claim has been approved. Thank you for your patience.');
+    @TestVisible
+    private class CaseData {
+        @TestVisible private String type;
+        @TestVisible private String subType;
+        @TestVisible private String subject;
+        @TestVisible private String description;
+        @TestVisible private String caseNumber;
+        @TestVisible private String origin;
+        @TestVisible private String caseRequester;
+        @TestVisible private String caseStatus;
+        @TestVisible private String creationDate;
+        @TestVisible private String lastModifiedDate;
 
-        // Send the email
-        Messaging.sendEmail(new Messaging.SingleEmailMessage[] { mail });
+        private CaseData(Case c){
+            if(c!=NULL){
+                this.type = c.Type;
+                this.subType = c.CASCO_SubType__c;
+                this.subject = c.Subject;
+                this.description = c.Description;
+                this.caseNumber = c.CaseNumber;
+                this.origin = c.Origin;
+                this.caseRequester = c.CASCO_CaseRequester__c;
+                this.caseStatus = c.Status;
+                this.creationDate = string.valueOf((c.CreatedDate).formatGMT('yyyy-MM-dd\'T\'HH:mm:ss\'Z\''));
+                this.lastModifiedDate = string.valueOf((c.LastModifiedDate).formatGMT('yyyy-MM-dd\'T\'HH:mm:ss\'Z\''));
+            }
+        }
+    }
+
+    @TestVisible 
+    private class MetaData {
+        @TestVisible private Integer totalCount;
+        @TestVisible private Integer pageLimit;
+        @TestVisible private Integer offset;
     }
 }
