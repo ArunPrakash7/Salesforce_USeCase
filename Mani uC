@@ -1,69 +1,25 @@
-import { LightningElement, api } from 'lwc';
-import { createRecord } from 'lightning/uiRecordApi';
-import { ShowToastEvent } from 'lightning/platformShowToastEvent';
-import CONTACT_OBJECT from '@salesforce/schema/Contact';
-import NAME_FIELD from '@salesforce/schema/Contact.Name';
-import EMAIL_FIELD from '@salesforce/schema/Contact.Email';
-import PHONE_FIELD from '@salesforce/schema/Contact.Phone';
-
-export default class PreviewDetails extends LightningElement {
-    @api name;
-    @api email;
-    @api phone;
-
-    handleBack() {
-        this.dispatchEvent(new CustomEvent('back'));
-    }
-
-    handleFinish() {
-        const fields = {};
-        fields[NAME_FIELD.fieldApiName] = this.name;
-        fields[EMAIL_FIELD.fieldApiName] = this.email;
-        fields[PHONE_FIELD.fieldApiName] = this.phone;
-
-        const recordInput = { apiName: CONTACT_OBJECT.objectApiName, fields };
-
-        createRecord(recordInput)
-            .then(contact => {
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Success',
-                        message: 'Contact created successfully',
-                        variant: 'success'
-                    })
-                );
-                this.dispatchEvent(new CustomEvent('finish'));
-                this.resetForm();
-            })
-            .catch(error => {
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: 'Error creating contact',
-                        message: error.body.message,
-                        variant: 'error'
-                    })
-                );
-                console.error('Error creating contact:', error.body.message);
-            });
-    }
-
-    resetForm() {
-        this.name = '';
-        this.email = '';
-        this.phone = '';
+{
+    "success": true,
+    "output": {
+        "cases": [
+            {
+                "type": "Support",
+                "subType": "Technical Issue",
+                "subject": "Issue with product X",
+                "description": "Customer reported a malfunction in product X.",
+                "caseNumber": "00012345",
+                "origin": "Web",
+                "caseRequester": "John Doe",
+                "caseStatus": "Open",
+                "creationDate": "2023-09-01T10:00:00Z",
+                "lastModifiedDate": "2023-09-02T14:30:00Z"
+            },
+            // Additional cases...
+        ],
+        "metadata": {
+            "totalCount": 2,
+            "pageLimit": 2,
+            "offset": 0
+        }
     }
 }
-
-<template>
-    <lightning-card title="Preview User Details">
-        <div class="slds-m-around_medium">
-            <p><strong>Name:</strong> {name}</p>
-            <p><strong>Email:</strong> {email}</p>
-            <p><strong>Phone:</strong> {phone}</p>
-        </div>
-        <div class="slds-m-around_medium">
-            <lightning-button label="Back" onclick={handleBack}></lightning-button>
-            <lightning-button label="Finish" onclick={handleFinish}></lightning-button>
-        </div>
-    </lightning-card>
-</template>
