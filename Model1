@@ -1,6 +1,7 @@
 @isTest
 public class RewardsCalloutServiceTest {
     @isTest static void testSubmitUsersForRewardCallout() {
+        // Mock for successful callout
         Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceMock());
 
         // Create test data for Wellness Journey
@@ -24,10 +25,15 @@ public class RewardsCalloutServiceTest {
         Integer statusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
         System.assertEquals(200, statusCode, 'The HTTP status code should be 200');
 
-        // Test callout failure scenario
+        // Test callout failure scenario (500 error)
         Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceErrorMock());
         Integer errorStatusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
         System.assertEquals(500, errorStatusCode, 'The HTTP status code should be 500 in case of error');
+
+        // Simulate an exception by using an invalid endpoint
+        Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceExceptionMock());
+        Integer exceptionStatusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
+        System.assertEquals(500, exceptionStatusCode, 'The HTTP status code should be 500 in case of exception');
     }
 }
 
@@ -50,5 +56,14 @@ global class RewardsCalloutServiceErrorMock implements HttpCalloutMock {
         res.setBody('{"status":"error"}');
         res.setStatusCode(500); // Simulate an error response
         return res;
+    }
+}
+
+// This Mock simulates an exception
+@isTest
+global class RewardsCalloutServiceExceptionMock implements HttpCalloutMock {
+    global HTTPResponse respond(HTTPRequest req) {
+        // Simulate an exception by throwing one here
+        throw new CalloutException('Simulated callout exception');
     }
 }
