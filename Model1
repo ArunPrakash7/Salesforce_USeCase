@@ -1,83 +1,61 @@
-<template>
-    <lightning-card title="Product Selection" icon-name="standard:product">
-        <div class="slds-p-around_medium">
-            <!-- Display products in a user-friendly way -->
-            <template if:true={products}>
-                <ul>
-                    <template for:each={products} for:item="product">
-                        <li key={product.Id}>
-                            {product.Name} - ${product.Price__c}
-                            <!-- Add a button or other UI element for product selection -->
-                            <button onclick={handleProductSelection} data-product-id={product.Id}>Select</button>
-                        </li>
-                    </template>
-                </ul>
-            </template>
-            <!-- Show a message if no products are available -->
-            <template if:false={products}>
-                <p>No products available for the selected industry.</p>
-            </template>
-        </div>
-    </lightning-card>
-</template>
+public class RewardsCalloutService {
+    public static Integer submitUsersForRewardCallout(String jsonBody) {
+        HttpRequest req = new HttpRequest();
+        req.setEndpoint('callout:BalancedLiving/rewards');
+        req.setMethod('POST');
+        req.setHeader('Content-Type', 'application/json');
+        req.setBody(jsonBody);
 
-
-import { LightningElement, wire } from 'lwc';
-import getFilteredProducts from '@salesforce/apex/ProductSelectionController.getFilteredProducts';
-
-export default class ProductSelectionLWC extends LightningElement {
-    products;
-
-    @wire(getFilteredProducts)
-    wiredProducts({ error, data }) {
-        if (data) {
-            this.products = data;
-        } else if (error) {
-            // Handle error appropriately
+        Http http = new Http();
+        HttpResponse res;
+        Integer statusCode;
+        try {
+            res = http.send(req);
+            statusCode = res.getStatusCode();
+            System.debug('Response Status: ' + statusCode);
+            System.debug('Response Body: ' + res.getBody());
+        } catch (Exception e) {
+            System.debug('Error: ' + e.getMessage());
+            statusCode = 500; // Internal Server Error
         }
-    }
-
-    handleProductSelection(event) {
-        // Handle product selection logic here
-        const selectedProductId = event.detail.productId;
-        // Implement further actions based on the selected product
+        return statusCode;
     }
 }
 
+@isTest
+public class RewardsCalloutServiceTest {
+    @isTest static void testSubmitUsersForRewardCallout() {
+        Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceMock());
 
-public with sharing class ProductSelectionController {
-
-    @AuraEnabled(cacheable=true)
-    public static List<Product__c> getFilteredProducts() {
-        // Get the current user's profile and industry
-        String userProfile = getUserProfile(UserInfo.getUserId());
-        String userIndustry = getUserIndustry(UserInfo.getUserId());
-
-        // Validate if the user is assigned to a valid industry
-        if (userIndustry != null) {
-            // Construct a dynamic query to retrieve products related to the user's industry
-            String query = 'SELECT Id, Name, Price__c FROM Product__c WHERE Industry__r.Name = \'' + userIndustry + '\'';
-            
-            // Add additional conditions or filters as needed
-
-            // Execute the dynamic query
-            return Database.query(query);
-        }
+        // Create test data for Wellness Journey
+        List<Wellness_Journey__c> journeys = new List<Wellness_Journey__c>();
+        User testUser = [SELECT Id, Name, Username, Email FROM User WHERE Id = :UserInfo.getUserId()];
         
-        // If the user is not assigned to a valid industry, return an empty list
-        return new List<Product__c>();
-    }
+        for (Integer i = 0; i < 12; i++) {
+            Wellness_Journey__c journey = new Wellness_Journey__c(
+                OwnerId = testUser.Id
+            );
+            journeys.add(journey);
+        }
+        insert journeys;
 
-    // Helper method to get the user's profile
-    private static String getUserProfile(Id userId) {
-        User userRecord = [SELECT Id, Profile.Name FROM User WHERE Id = :userId LIMIT 1];
-        return userRecord.Profile.Name;
-    }
+        Test.startTest();
+        Database.executeBatch(new WellnessJourneyRewardsBatch());
+        Test.stopTest();
 
-    // Helper method to get the user's assigned industry
-    private static String getUserIndustry(Id userId) {
-        // Query the Industry__c field on the User object to get the assigned industry
-        User userRecord = [SELECT Id, Industry__c FROM User WHERE Id = :userId LIMIT 1];
-        return userRecord.Industry__c;
+        // Assertions to validate the behavior can be added here
+        Integer statusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
+        System.assertEquals(200, statusCode, 'The HTTP status code should be 200');
+    }
+}
+
+@isTest
+global class RewardsCalloutServiceMock implements HttpCalloutMock {
+    global HTTPResponse respond(HTTPRequest req) {
+        HttpResponse res = new HttpResponse();
+        res.setHeader('Content-Type', 'application/json');
+        res.setBody('{"status":"success"}');
+        res.setStatusCode(200);
+        return res;
     }
 }
