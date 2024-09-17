@@ -1,69 +1,403 @@
-@isTest
-public class RewardsCalloutServiceTest {
-    @isTest static void testSubmitUsersForRewardCallout() {
-        // Mock for successful callout
-        Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceMock());
+/**
+ * Created by Hlib_Ostapenko on 15.06.2022.
+ */
 
-        // Create test data for Wellness Journey
-        List<Wellness_Journey__c> journeys = new List<Wellness_Journey__c>();
-        User testUser = [SELECT Id, Name, Username, Email FROM User WHERE Id = :UserInfo.getUserId()];
+ public class ITA_SM_Address {
+    
+    @TestVisible
+    public static final String NOT_PROCESSED_ADDRESS = AddressHelper.PROCESS_EXECUTION_NOT_PROCESSED;
 
-        for (Integer i = 0; i < 12; i++) {
-            Wellness_Journey__c journey = new Wellness_Journey__c(
-                OwnerId = testUser.Id
-            );
-            journeys.add(journey);
+    /**
+     * @author Hlib Ostapenko (hlib_ostapenko@epam.com) on 15.06.2022
+     * @description Handle created/changed residence addresses on patient
+     * @param addresses addresses
+     * @param oldAddresses old addresses
+     */
+    public static void handleUniqueResidenceAddresses(List<Schema.Address> addresses,
+            Map<Id, Schema.Address> oldAddresses) {
+
+        //Collect only residence addresses and its patients
+        Map<Id, Id> residenceAddressIdByPatientId = new Map<Id, Id>();
+
+        for (Schema.Address addr : addresses) {
+            if (addr.CUSIT_ResidenceAddress__c &&
+                    (Trigger.isInsert || (Trigger.isUpdate && !oldAddresses.get(addr.Id).CUSIT_ResidenceAddress__c))) {
+
+                // Only one address can be set as residence
+                if (residenceAddressIdByPatientId.containsKey(addr.ACCCO_RelatedAccount__c)) {
+                    addr.addError(System.Label.CUSIT_ResidenceAddressCanBeOnlyOne);
+                }
+
+                residenceAddressIdByPatientId.put(addr.ACCCO_RelatedAccount__c, addr.Id);
+            }
         }
-        insert journeys;
 
-        Test.startTest();
-        // Execute batch that triggers the callout
-        Database.executeBatch(new WellnessJourneyRewardsBatch());
-        Test.stopTest();
-
-        // Test successful callout
-        Integer statusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
-        System.assertEquals(200, statusCode, 'The HTTP status code should be 200');
-
-        // Test callout failure scenario (500 error)
-        Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceErrorMock());
-        Integer errorStatusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
-        System.assertEquals(500, errorStatusCode, 'The HTTP status code should be 500 in case of error');
-
-        // Simulate an exception by using an invalid endpoint
-        Test.setMock(HttpCalloutMock.class, new RewardsCalloutServiceExceptionMock());
-        Integer exceptionStatusCode = RewardsCalloutService.submitUsersForRewardCallout(JSON.serialize(journeys));
-        System.assertEquals(500, exceptionStatusCode, 'The HTTP status code should be 500 in case of exception');
+        if (!residenceAddressIdByPatientId.isEmpty()) {
+            ITA_EM_Address.dismissPreviousResidenceAddresses(residenceAddressIdByPatientId);
+        }
     }
+
+    /**
+     * @author Cognizant on 13.09.2024
+     * @description Handle created/changed shipping addresses on hospital
+     * @param addresses addresses
+     * @param oldAddresses old addresses
+     */
+    public static void handleUniqueShippingAddresses(List<Schema.Address> addresses,
+            Map<Id, Schema.Address> oldAddresses) {
+        
+        //Collect only shipping addresses and its hospital
+        Map<Id, List<Schema.Address>> shippingAddressesByHospitalDepartmentId = new Map<Id, List<Schema.Address>>();
+		
+        Set<Id> currentShippingAddressIds = new Set<Id>();
+        Set<Id> parentHospitalIds = new Set<Id>();
+                
+        for (Schema.Address addr : addresses) {
+            if ((addr.CTCCO_ShippingAddress__c &&
+                (Trigger.isInsert || (Trigger.isUpdate && !oldAddresses.get(addr.Id).CTCCO_ShippingAddress__c))
+                ) ||
+                (Trigger.isUpdate && 
+                 !addr.CTCCO_ShippingAddress__c &&
+                 oldAddresses.get(addr.Id).CTCCO_ShippingAddress__c))
+            {
+                if(!currentShippingAddressIds.contains(addr.Id)){
+                	currentShippingAddressIds.add(addr.Id);        
+                }
+                if(!parentHospitalIds.contains(addr.ACCCO_RelatedAccount__c)){
+                	parentHospitalIds.add(addr.ACCCO_RelatedAccount__c);        
+                }
+            }
+        }
+        if(!parentHospitalIds.isEmpty()){
+            List<Schema.Address> tempAddresses;
+            for(Schema.Address addr: [SELECT
+                                        Id,
+                                        ACCCO_RelatedAccount__c
+                                      FROM Address
+                                      WHERE ACCCO_RelatedAccount__c IN : parentHospitalIds
+                                      AND ACCCO_RelatedAccount__r.Type =: AccountHelper.TYPE_HOSPITAL_DEPARTMENT
+                                      AND CTCCO_ShippingAddress__c = TRUE
+                                      AND Id NOT IN : currentShippingAddressIds
+                                      ORDER BY ACCCO_RelatedAccount__c])
+            {
+                tempAddresses = shippingAddressesByHospitalDepartmentId.containsKey(addr.ACCCO_RelatedAccount__c) ?
+                                shippingAddressesByHospitalDepartmentId.get(addr.ACCCO_RelatedAccount__c) :
+                                new List<Schema.Address>();
+                tempAddresses.add(addr);
+                shippingAddressesByHospitalDepartmentId.put(addr.ACCCO_RelatedAccount__c, tempAddresses);
+            }
+            
+            for (Schema.Address addr : addresses){
+                if(Trigger.isInsert && 
+                   addr.CTCCO_ShippingAddress__c &&
+                   shippingAddressesByHospitalDepartmentId.containsKey(addr.ACCCO_RelatedAccount__c))
+                {
+                    // When new shipping address is CREATED for a hospital department which already has one
+                    addr.addError(System.Label.CUSIT_ShippingAddressCanBeOnlyOne);
+                }
+                else if(Trigger.isUpdate){
+                    if(addr.CTCCO_ShippingAddress__c && 
+                       shippingAddressesByHospitalDepartmentId.containsKey(addr.ACCCO_RelatedAccount__c)){
+                        // When existing address is UPDATED as shipping for a hospital department which already has one
+                        addr.addError(System.Label.CUSIT_ShippingAddressCanBeOnlyOne2);
+                    }
+                    else if(!addr.CTCCO_ShippingAddress__c &&
+                            oldAddresses.get(addr.Id).CTCCO_ShippingAddress__c &&
+                            !shippingAddressesByHospitalDepartmentId.containsKey(addr.ACCCO_RelatedAccount__c))
+                    {
+                        // When existing shipping address is UPDATED as non-shipping for a hospital department which does not have anymore shipping address
+                        addr.addError(System.Label.CUSIT_ShippingAddressCannotBeChanged);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @author Utsav Gupta on 21.02.2024
+     * @description Adding value to trigger batch
+     * @param addresses new addresses list
+     * @param oldAddresses old addresses map
+     */
+    public static void updateProcessExecutionField(List < Schema.Address > addresses, Map<Id, Schema.Address> oldAddress) {
+        List<String> processExecutionValue = new List<String>();
+        Set<Id> accIds = new Set<Id>();
+        Schema.Address oldAddressObj;
+        for (Schema.Address addr : addresses) {
+            if(addr.ACCCO_RelatedAccount__c != null){
+                accIds.add(addr.ACCCO_RelatedAccount__c);
+            }
+        }
+        Map<Id, Account> mapAccountById = new Map<Id, Account>([SELECT Id, TEKCO_RecordTypeName__c FROM Account WHERE Id IN :accIds]);
+        if(mapAccountById == null){
+            return;
+        }
+        for (Schema.Address addr : addresses) {
+            if(oldAddress != null){
+                oldAddressObj = oldAddress.get(addr.Id);
+            }
+            if ((oldAddress == null && addr.CUSCO_TemporaryAddress__c)
+                || (oldAddress != null && ((oldAddressObj.CUSCO_TemporaryAddress__c && (oldAddressObj.CUSCO_ArrivalDate__c != addr.CUSCO_ArrivalDate__c || oldAddressObj.CUSCO_DepartureDate__c != addr.CUSCO_DepartureDate__c))
+                || (!oldAddressObj.CUSCO_TemporaryAddress__c && addr.CUSCO_TemporaryAddress__c)))
+                && mapAccountById.get(addr.ACCCO_RelatedAccount__c).TEKCO_RecordTypeName__c == AccountHelper.PATIENT_RT_NAME) {
+                if(addr.TEKCO_ProcessExecution__c != null && !addr.TEKCO_ProcessExecution__c.split(';').contains(NOT_PROCESSED_ADDRESS)){
+                    addr.TEKCO_ProcessExecution__c = NOT_PROCESSED_ADDRESS;
+                }
+                else{
+                    addr.TEKCO_ProcessExecution__c = NOT_PROCESSED_ADDRESS;
+                }
+            }
+        }
+	}
 }
 
-@isTest
-global class RewardsCalloutServiceMock implements HttpCalloutMock {
-    global HTTPResponse respond(HTTPRequest req) {
-        HttpResponse res = new HttpResponse();
-        res.setHeader('Content-Type', 'application/json');
-        res.setBody('{"status":"success"}');
-        res.setStatusCode(200);
-        return res;
-    }
-}
+/**
+ * Created by Aleksei Bezmoshchuk on 7/24/2020.
+ */
 
-@isTest
-global class RewardsCalloutServiceErrorMock implements HttpCalloutMock {
-    global HTTPResponse respond(HTTPRequest req) {
-        HttpResponse res = new HttpResponse();
-        res.setHeader('Content-Type', 'application/json');
-        res.setBody('{"status":"error"}');
-        res.setStatusCode(500); // Simulate an error response
-        return res;
-    }
-}
 
-// This Mock simulates an exception
-@isTest
-global class RewardsCalloutServiceExceptionMock implements HttpCalloutMock {
-    global HTTPResponse respond(HTTPRequest req) {
-        // Simulate an exception by throwing one here
-        throw new CalloutException('Simulated callout exception');
+
+
+
+
+public class AddressTriggerHandler extends TriggerHandler {
+
+    /**
+     * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 2/28/2022
+     * @description Handle created addresses before insert
+     * @param newObjects - list of created addresses
+     */
+    public override void onBeforeInsert(List<SObject> newObjects) {
+
+        CORE_SM_Address.setDefaultValues(newObjects);
+        CORE_SM_Address.setAddressType(newObjects);
+        CORE_SM_Address.setServiceTerritory((List<Schema.Address>) newObjects, new Map<Id, Schema.Address>());
+
+        List<Schema.Address> serviceResourceAddresses = CORE_SM_Address.filterAddressesForServiceResources(newObjects);
+        List<Schema.Address> coreAddresses = SObjectHelper.excludeSObjects(newObjects, serviceResourceAddresses);
+        
+        for (SObject sObj : newObjects) {
+            Schema.Address addr = (Schema.Address) sObj;
+            if (addr.get('TEKCO_Country__c') == GlobalConstants.COUNTRY_ITALY) {
+                ITA_SM_Address.updateProcessExecutionField(newObjects, null);
+            }
+        }
+
+        if (!coreAddresses.isEmpty()) {
+            CORE_SM_Address.setParentId(coreAddresses);
+        }
+
+        if (!serviceResourceAddresses.isEmpty()) {
+            CANADA_SM_Address.handleServiceResourceAddressesBeforeInsert(serviceResourceAddresses);
+        }
+        Map<String, List<Schema.Address>> addressesByCountry =
+        (Map<String, List<Schema.Address>>) SObjectHelper.sobjectsByCountry(newObjects);
+
+        if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_BRAZIL)) {
+            BRA_SM_Address.verifyDuplicateTitlesForAccount(newObjects, null);
+        }
+        system.debug('addressesByCountry -->'+addressesByCountry);
+        if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_ITALY)) {
+            system.debug('AddressTriggerHandler BEFORE INSERT');
+            ITA_SM_Address.handleUniqueShippingAddresses(newObjects, null);
+        }
+
+        CORE_SM_Address.checkOverlappingOfTemporaryAddress((List<Schema.Address>)newObjects, null);
+        CORE_SM_Address.setStateProvinceByCountry(newObjects);
+        CORE_SM_AddressValidation.addressValidation(newObjects);
+    }
+
+    /**
+     * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 2/28/2022
+     * @description Handle created addresses after insert
+     * @param newObjects - list of created addresses
+     * @param newObjectsMap - map of created addresses
+     */
+    public override void onAfterInsert(List<SObject> newObjects, Map<Id, SObject> newObjectsMap) {
+
+        Map<Id, Schema.Address> addressesMap = (Map<Id, Schema.Address>) newObjectsMap;
+
+        Map<Id, List<Schema.Address>> addressesByAccountRecordTypeIds =
+                AddressHelper.categorizeAddressesByAccountRecordTypeId(
+                        newObjects
+                );
+
+        List<Schema.Address> patientsALEmployeesOrIndividuals =
+                AddressHelper.collectPatientALEmployeeOrIndividualAddresses(
+                        addressesByAccountRecordTypeIds
+                );
+
+        List<Schema.Address> businessAddresses = AddressHelper.collectBusinessAddresses(addressesByAccountRecordTypeIds);
+
+        if (!CORE_SM_AddressValidation.addressValidationFailed) {
+            CORE_SM_Address.handleUniqueAddresses(patientsALEmployeesOrIndividuals, addressesMap);
+            CORE_SM_Address.handleUniqueMainBusinessAddresses(businessAddresses, addressesMap);
+        }
+        CORE_SM_Address.setBranchOnRelatedAccount(newObjects, null);
+
+        List<Schema.Address> italianPatientsALEmployeesOrIndividuals = SObjectHelper.filterSObjectsByFieldValue(
+                patientsALEmployeesOrIndividuals,
+                new Map<String, String>{
+                        String.valueOf(Schema.Address.TEKCO_Country__c) => GlobalConstants.COUNTRY_ITALY
+                }
+        );
+
+        if (!italianPatientsALEmployeesOrIndividuals.isEmpty()) {
+            CORE_SM_Address.handleUniqueShippingAddresses(italianPatientsALEmployeesOrIndividuals, addressesMap);
+            ITA_SM_Address.handleUniqueResidenceAddresses(italianPatientsALEmployeesOrIndividuals, addressesMap);
+        }
+
+        List<Schema.Address> addressesWithServiceResources =
+                CORE_SM_Address.filterAddressesForServiceResources(newObjects);
+
+        List<Schema.Address> validServiceResourceAddresses =
+                CANADA_EM_Address.validateActiveMainServiceResourceAddresses(
+                        addressesWithServiceResources
+                );
+
+        CANADA_EM_Address.uncheckServiceResourceMainAddresses(validServiceResourceAddresses);
+
+        CORE_SM_Address.setEmergencyGeocodesByGoogle(newObjects);
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 2/28/2022
+        * Updated by Selim Mahjoub((selim.mahjoub-sc@airliquide.com), 09/11/2022)
+        * @description Handle updated addresses before update
+        * @param newObjects - list of updated addresses
+        * @param oldObjectsMap - list of old addresses
+    */
+    public override void onBeforeUpdate(List<SObject> newObjects, Map<Id, SObject> oldObjectsMap) {
+
+        Map<String, List<Schema.Address>> addressesByCountry =
+        (Map<String, List<Schema.Address>>) SObjectHelper.sobjectsByCountry(newObjects);
+
+        Map<Id, Schema.Address> addressesMap = (Map<Id, Schema.Address>) oldObjectsMap;
+
+        if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_BRAZIL)) {
+            BRA_SM_Address.verifyDuplicateTitlesForAccount(newObjects, addressesMap);
+        }
+        system.debug('addressesByCountry -->'+addressesByCountry);
+        system.debug('AddressTriggerHandler BEFORE UPDATE BEFORE IF CHECK');
+        if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_ITALY)) {
+            ITA_SM_Address.updateProcessExecutionField(newObjects, addressesMap);
+            system.debug('AddressTriggerHandler BEFORE UPDATE');
+            ITA_SM_Address.handleUniqueShippingAddresses(newObjects, addressesMap);
+        }
+
+        this.trackedSObjectFields = new List<SObjectField>{
+                Schema.Address.CTCCO_IsActive__c,
+                Schema.Address.CTCCO_MainAddress__c
+        };
+        CORE_SM_Address.checkOverlappingOfTemporaryAddress((List<Schema.Address>) newObjects, addressesMap);
+        CORE_SM_Address.setServiceTerritory((List<Schema.Address>) newObjects, addressesMap);
+        CORE_SM_Address.setAddressType(newObjects);
+        CORE_SM_Address.setGeolocationType(newObjects, addressesMap);
+
+        List<Schema.Address> canadianAddresses = new List<Schema.Address>();
+        for (SObject addr : newObjects) {
+            if (addr.get('TEKCO_Country__c') == GlobalConstants.COUNTRY_CANADA) {
+                canadianAddresses.add((Schema.Address) addr);
+            }
+        }
+
+        if (!canadianAddresses.isEmpty()) {
+            CANADA_SM_Address.onFieldsChangeBeforeUpdate(this.sObjectsByChangedField);
+            CANADA_SM_Address.recalculateWarehouseOnAddressesAfterUpdatedServiceTerritory(
+                    canadianAddresses,
+                    (Map<Id, Schema.Address>) oldObjectsMap
+            );
+        }
+        if (!CORE_SM_AddressValidation.addressStateFilled) {
+            CORE_SM_Address.setStateProvinceByCountry(newObjects);
+        }
+
+        CORE_SM_AddressValidation.addressValidation(newObjects);
+    }
+
+    /**
+     * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 2/28/2022
+     * @description Handle updated addresses after update
+     * @param newObjects - list of updated addresses
+     * @param oldObjectsMap - map of old addresses
+     */
+    public override void onAfterUpdate(List<SObject> newObjects, Map<Id, SObject> oldObjectsMap) {
+        this.trackedSObjectFields = new List<SObjectField>{
+                Schema.Address.CTCCO_IsActive__c,
+                Schema.Address.CTCCO_MainAddress__c
+        };
+        Map<Id, Schema.Address> oldAddresses = (Map<Id, Schema.Address>) oldObjectsMap;
+
+        Map<Id, List<Schema.Address>> addressesByAccountRecordTypeIds =
+                AddressHelper.categorizeAddressesByAccountRecordTypeId(newObjects);
+
+        List<Schema.Address> patientsALEmployeesOrIndividuals =
+                AddressHelper.collectPatientALEmployeeOrIndividualAddresses(
+                        addressesByAccountRecordTypeIds
+                );
+
+        CORE_SM_Address.setBranchOnRelatedAccount(newObjects, oldAddresses);
+        CORE_SM_Address.handleUniqueAddresses(patientsALEmployeesOrIndividuals, oldAddresses);
+
+        List<Schema.Address> businessAddresses = AddressHelper.collectBusinessAddresses(addressesByAccountRecordTypeIds);
+
+        CORE_SM_Address.handleUniqueMainBusinessAddresses(businessAddresses, oldAddresses);
+
+        List<Schema.Address> patientAndBusinessAddresses = new List<Schema.Address>();
+        patientAndBusinessAddresses.addAll(patientsALEmployeesOrIndividuals);
+        patientAndBusinessAddresses.addAll(businessAddresses);
+
+        if (!CORE_SM_AddressValidation.addressValidationFailed) {
+            CORE_SM_Address.handleUpdatedMainAddressDetails(patientAndBusinessAddresses, oldAddresses);
+        }
+
+        CANADA_SM_Address.onFieldsChangeAfterUpdate(this.sObjectsByChangedField);
+
+        List<Schema.Address> italyPatientAddresses = SObjectHelper.filterSObjectsByFieldValue(
+                patientsALEmployeesOrIndividuals,
+                new Map<String, String>{
+                        String.valueOf(Schema.Address.TEKCO_Country__c) => GlobalConstants.COUNTRY_ITALY
+                }
+        );
+
+        if (!italyPatientAddresses.isEmpty()) {
+            CORE_SM_Address.handleUniqueShippingAddresses(italyPatientAddresses, oldAddresses);
+            ITA_SM_Address.handleUniqueResidenceAddresses(italyPatientAddresses, oldAddresses);
+        }
+
+        Map<String, List<Schema.Address>> addressesByCountry =
+                (Map<String, List<Schema.Address>>) SObjectHelper.sobjectsByCountry(newObjects);
+
+        if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_FRANCE)) {
+            DINNO_SM_Address.setOrderPickUpLocationAddress(
+                    addressesByCountry.get(GlobalConstants.COUNTRY_FRANCE),
+                    oldAddresses
+            );
+        }
+
+        List<Schema.Address> serviceTerritoryAddresses = CANADA_SM_Address.filterAddressesForServiceTerritories(
+                newObjects);
+
+        if (!serviceTerritoryAddresses.isEmpty()) {
+            CANADA_SM_Address.validateWarehouses(serviceTerritoryAddresses);
+        }
+
+        if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_BRAZIL)) {
+            BRA_SM_Address.setServiceTerritory(addressesByCountry.get(GlobalConstants.COUNTRY_BRAZIL), oldAddresses);
+        }
+        CORE_SM_Address.updateServiceAppointmentGeoLocation(newObjects,oldAddresses);
+    }
+
+    /**
+     * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 2/28/2022
+     * @description Handle deleted addresses after delete
+     * @param oldAddresses - deleted addresses
+     * @param oldAddressById - map of deleted addresses
+     */
+    public override void onAfterDelete(List<SObject> oldAddresses, Map<Id, SObject> oldAddressById) {
+        List<Schema.Address> serviceResourceAddresses = CORE_SM_Address.filterAddressesForServiceResources(
+                oldAddresses);
+
+        CANADA_EM_Address.validateActiveMainServiceResourceAddresses(serviceResourceAddresses);
     }
 }
