@@ -1,25 +1,2017 @@
-{
-    "success": true,
-    "output": {
-        "cases": [
-            {
-                "type": "Support",
-                "subType": "Technical Issue",
-                "subject": "Issue with product X",
-                "description": "Customer reported a malfunction in product X.",
-                "caseNumber": "00012345",
-                "origin": "Web",
-                "caseRequester": "John Doe",
-                "caseStatus": "Open",
-                "creationDate": "2023-09-01T10:00:00Z",
-                "lastModifiedDate": "2023-09-02T14:30:00Z"
-            },
-            // Additional cases...
-        ],
-        "metadata": {
-            "totalCount": 2,
-            "pageLimit": 2,
-            "offset": 0
+/**
+ * Created by Aleksei Bezmoshchuk on 7/24/2020.
+ */
+
+@IsTest
+public class AddressTest {
+
+    private static final Integer NUMBER_OF_PATIENTS = 10;
+    private static final Integer NUMBER_OF_ADDRESSES = 10;
+    private static final Integer NUMBER_OF_INDIVIDUALS = 10;
+    private static final Integer NUMBER_OF_SERVICE_RESOURCES = 3;
+
+    private static final String STREET = 'Street';
+    private static final String CITY = 'City';
+    private static final String POSTAL_CODE = '12345';
+    private static final String NAME = 'Bruce Banner';
+
+    private static final String BILLING_COMPLEMENT_INFORMATION = 'Billing Complement Information';
+    private static final String SHIPPING_COMPLEMENT_INFORMATION = 'Shipping Complement Information';
+    private static final String MAILING_COMPLEMENT_INFORMATION = 'Mailing Complement Information';
+
+    private static final String BILLING_NEIGHBORHOOD = 'Billing Neighborhood';
+    private static final String SHIPPING_NEIGHBORHOOD = 'Shipping Neighorhood';
+    private static final String MAILING_NEIGHBORHOOD = 'Mailing Neighborhood';
+
+    private static final String ASSERT_MSG_ERROR_MUST_CONTAIN = 'Error msg must contain: {0} | But error msg: {1}';
+    private static final String ASSERT_MSG_INSERT_EXCEPTION_FOR_PATIENTS =
+            'There should be an exception after inserting Addresses for Patients';
+    private static final String ASSERT_MSG_INSERT_EXCEPTION_FOR_SERVICE_RESOURCE =
+            'There should be an exception after inserting Addresses for Service Resources';
+
+    private static final String ADDRESS_DESCRIPTION = 'Test Description';
+
+    private static final Decimal LOCATION_OFFSET = 0.01;
+
+    @TestSetup
+    public static void testSetup() {
+        TestContext.BRAND = GlobalConstants.BRAND_CAN_POX;
+        TestContext.COUNTRY = GlobalConstants.COUNTRY_CANADA;
+
+        Test.startTest();
+        Profile minimumAccess = [SELECT Id FROM Profile WHERE Name = :UserHelper.PROFILE_MINIMUM_ACCESS];
+
+        List<User> resourceUsers = Test_UserHelper.createListOfDummyUsers(NAME.replaceAll(' ', '_'),
+                minimumAccess.Id,
+                NUMBER_OF_SERVICE_RESOURCES,
+                true
+        );
+
+        System.runAs(Test_UserHelper.createUserWithPermissionSet(UserHelper.FRONT_OFFICE_AGENT_PERMISSION_SET)) {
+
+            List<Account> patients = Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, true);
+            List<ServiceResource> resources = Test_ServiceResourceHelper.createListOfDummyResources(
+                    resourceUsers,
+                    true
+            );
+
+            createLocationForParents(patients);
+            createLocationForParents(resources);
+
+        }
+        
+        Test.stopTest();
+
+    }
+
+    /**
+        * @author Aleksei_Bezmoshchuk(aleksei_bezmoshchuk@epam.com), 7/27/2020
+        * @description Set list of addresses as main, only one for patient
+    */
+    @IsTest
+    public static void setAddressAsMain() {
+
+        List<Schema.Address> addresses = createdAddressesUsingPatientAndLocations(false);
+
+        List<Schema.Address> addresses1 = new List<Schema.Address>();
+        List<Schema.Address> addresses2 = new List<Schema.Address>();
+
+        Test.startTest();
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+
+            for (Integer i = 0; i < addresses.size(); i += NUMBER_OF_ADDRESSES) {
+
+                addresses[i].CTCCO_MainAddress__c = true;
+                addresses1.add(addresses[i]);
+
+                addresses[i + 1].CTCCO_MainAddress__c = true;
+                addresses2.add(addresses[i + 1]);
+            }
+
+            insert addresses1;
+
+            List<Schema.Address> mainAddresses = [SELECT CTCCO_MainAddress__c FROM Address WHERE Id = :addresses1];
+            for (Schema.Address mainAddress : mainAddresses) {
+                System.assert(mainAddress.CTCCO_MainAddress__c);
+            }
+
+            insert addresses2;
+
+        }
+
+        Test.stopTest();
+
+        System.assertEquals(NUMBER_OF_ADDRESSES, [SELECT COUNT() FROM Address WHERE CTCCO_MainAddress__c = TRUE]);
+
+        List<Schema.Address> newMainAddresses = [SELECT CTCCO_MainAddress__c FROM Address WHERE Id = :addresses2];
+        for (Schema.Address mainAddress : newMainAddresses) {
+            System.assert(mainAddress.CTCCO_MainAddress__c);
+        }
+
+        List<Schema.Address> oldMainAddresses = [SELECT CTCCO_MainAddress__c FROM Address WHERE Id = :addresses1];
+        for (Schema.Address mainAddress : oldMainAddresses) {
+            System.assert(!mainAddress.CTCCO_MainAddress__c);
+        }
+
+    }
+
+    /**
+     * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 9/21/2020
+     * @description Address cannot be created if it is not main address and related account doesn't have a main address at all
+     */
+    @IsTest
+    public static void createNotMainAddress() {
+        Exception exc;
+
+        Test.startTest();
+        try {
+            createdAddressesUsingPatientAndLocations(true);
+        } catch (Exception e) {
+            exc = e;
+        }
+        Test.stopTest();
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_PATIENTS);
+        System.assert(
+                exc.getMessage().contains(System.Label.CTCCO_MainAddressCannotBeDeactivated),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.CTCCO_MainAddressCannotBeDeactivated,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com), 7/27/2020
+        * @description If two or more addresses are set as main, we receive an error as there can be only one main
+    */
+    @IsTest
+    public static void setMainAddressMoreThanOne() {
+        Exception exc;
+        List<Schema.Address> addresses = createdAddressesUsingPatientAndLocations(false);
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            for (Schema.Address address : addresses) {
+                address.CTCCO_MainAddress__c = true;
+            }
+
+            Test.startTest();
+            try {
+                insert addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_PATIENTS);
+        System.assert(
+                exc.getMessage().contains(System.Label.CTCCO_MainAddressCanBeOnlyOne),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.CTCCO_MainAddressCanBeOnlyOne,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com), 7/27/2020
+        * @description Set addresses as billing, only one for patient
+    */
+    @IsTest
+    public static void setAddressAsBilling() {
+
+        List<Schema.Address> addresses = createdAddressesUsingPatientAndLocations(false);
+
+        List<Schema.Address> addresses1 = new List<Schema.Address>();
+        List<Schema.Address> addresses2 = new List<Schema.Address>();
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+
+            for (Integer i = 0; i < addresses.size(); i += NUMBER_OF_ADDRESSES) {
+
+                addresses[i].CTCCO_BillingAddress__c = true;
+                addresses[i].CTCCO_MainAddress__c = true;
+                addresses1.add(addresses[i]);
+
+                addresses[i + 1].CTCCO_BillingAddress__c = true;
+                addresses2.add(addresses[i + 1]);
+            }
+
+            Test.startTest();
+
+            insert addresses1;
+
+            List<Schema.Address> mainAddresses = [
+                    SELECT CTCCO_BillingAddress__c
+                    FROM Address
+                    WHERE Id = :addresses1
+            ];
+
+            // Check first addresses were set as billing
+            for (Schema.Address mainAddress : mainAddresses) {
+                System.assert(mainAddress.CTCCO_BillingAddress__c);
+            }
+
+            insert addresses2;
+
+            Test.stopTest();
+
+            // There should be only 1 set of billing addresses
+            System.assertEquals(NUMBER_OF_ADDRESSES, [SELECT COUNT() FROM Address WHERE CTCCO_BillingAddress__c = TRUE]);
+
+            List<Schema.Address> newMainAddresses = [
+                    SELECT CTCCO_BillingAddress__c
+                    FROM Address
+                    WHERE Id = :addresses2
+            ];
+
+            // Second addresses are billing
+            for (Schema.Address mainAddress : newMainAddresses) {
+                System.assert(mainAddress.CTCCO_BillingAddress__c);
+            }
+
+            List<Schema.Address> oldMainAddresses = [
+                    SELECT CTCCO_BillingAddress__c
+                    FROM Address
+                    WHERE Id = :addresses1
+            ];
+
+            //First addresses are not billing
+            for (Schema.Address mainAddress : oldMainAddresses) {
+                System.assert(!mainAddress.CTCCO_BillingAddress__c);
+            }
+        }
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com), 7/27/2020
+        * @description If two or more addresses are set as billing, we receive an error as there can be only one billing
+    */
+    @IsTest
+    public static void setBillingAddressMoreThanOne() {
+        Exception exc;
+        List<Schema.Address> addresses = createdAddressesUsingPatientAndLocations(false);
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            for (Schema.Address address : addresses) {
+                address.CTCCO_BillingAddress__c = true;
+            }
+
+            // Validation for main address is earlier than for billing address
+            for (Integer i = 0; i < addresses.size(); i += NUMBER_OF_ADDRESSES) {
+                addresses[i].CTCCO_MainAddress__c = true;
+            }
+
+            Test.startTest();
+            try {
+                insert addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_PATIENTS);
+        System.assert(
+                exc.getMessage().contains(System.Label.CTCCO_BillingAddressCanBeOnlyOne),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.CTCCO_BillingAddressCanBeOnlyOne,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com), 7/27/2020
+        * @description Main address cannot be deactivated as patient must always have an active main address
+    */
+    @IsTest
+    public static void mainAddressCannotBeDeactivated() {
+
+        List<Schema.Address> addresses = createdAddressesUsingPatientAndLocations(false);
+
+        Map<Id, Schema.Address> oneAddressByPatient = new Map<Id, Schema.Address>();
+        for (Schema.Address addr : addresses) {
+            if (!oneAddressByPatient.containsKey(addr.ACCCO_RelatedAccount__c)) {
+                oneAddressByPatient.put(addr.ACCCO_RelatedAccount__c, addr);
+            }
+        }
+
+        for (Schema.Address addr : oneAddressByPatient.values()) {
+            addr.CTCCO_MainAddress__c = true;
+        }
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+
+            Test.startTest();
+
+            insert oneAddressByPatient.values();
+
+            List<Schema.Address> activeMainAddresses = [
+                    SELECT CTCCO_IsActive__c, CTCCO_MainAddress__c
+                    FROM Address
+                    WHERE Id = :oneAddressByPatient.values()
+            ];
+
+            System.assertEquals(NUMBER_OF_PATIENTS, activeMainAddresses.size());
+
+            for (Schema.Address addr : activeMainAddresses) {
+                System.assert(addr.CTCCO_IsActive__c);
+                System.assert(addr.CTCCO_MainAddress__c);
+
+                addr.CTCCO_IsActive__c = false;
+            }
+
+            List<Database.SaveResult> deactivatingResults = Database.update(activeMainAddresses, false);
+            Test.stopTest();
+
+            for (Database.SaveResult result : deactivatingResults) {
+
+                if (result.isSuccess()) {
+                    System.assert(false);
+                }
+            }
+        }
+    }
+
+    /**
+        * @author Oleg Zykyi(oleg_zykyi@epam.com), 10/29/2020
+        * @description Polygon's Service Territory should be set for Address in case if the address is covered by Polygon
+    */
+    @IsTest
+    public static void setServiceTerritoryForAddress() {
+        TestContext.BRAND = GlobalConstants.BRAND_CAN_POX;
+        TestContext.COUNTRY = GlobalConstants.COUNTRY_CANADA;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+
+            FSL__Polygon__c laAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                    Test_MapPolygonHelper.PolygonArea.LA, true
+            );
+
+            FSL__Polygon__c nyAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                    Test_MapPolygonHelper.PolygonArea.NY, true
+            );
+
+            List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                    Test_PatientHelper.createDummyPatients(3 * NUMBER_OF_PATIENTS, true),
+                    STREET,
+                    CITY,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_CANADA,
+                    false
+            );
+
+            List<Schema.Address> laAddresses = new List<Schema.Address>();
+            List<Schema.Address> nyAddresses = new List<Schema.Address>();
+            List<Schema.Address> noPolygonAddresses = new List<Schema.Address>();
+
+            Integer currentAddressIndex = 1;
+            for (Schema.Address address : addresses) {
+
+                if (currentAddressIndex <= NUMBER_OF_PATIENTS) {
+                    laAddresses.add(address);
+                } else if (currentAddressIndex > NUMBER_OF_PATIENTS && currentAddressIndex <= NUMBER_OF_PATIENTS * 2) {
+                    nyAddresses.add(address);
+                } else {
+                    noPolygonAddresses.add(address);
+                }
+
+                currentAddressIndex++;
+            }
+
+            insert addresses;
+
+            // set coordinates inside existing polygon
+            for (Schema.Address laAddress : laAddresses) {
+                laAddress.Latitude = laAreaPolygon.FSL__Mi_La__c + LOCATION_OFFSET;
+                laAddress.Longitude = laAreaPolygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+            }
+
+            // set coordinates inside existing polygon
+            for (Schema.Address nyAddress : nyAddresses) {
+                nyAddress.Latitude = nyAreaPolygon.FSL__Mi_La__c + LOCATION_OFFSET;
+                nyAddress.Longitude = nyAreaPolygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+            }
+
+            // set coordinates outside existing polygons
+            for (Schema.Address noPolygonAddress : noPolygonAddresses) {
+                noPolygonAddress.Latitude = laAreaPolygon.FSL__Mi_La__c ;
+                noPolygonAddress.Longitude = nyAreaPolygon.FSL__Ma_Lo__c;
+            }
+
+            // update of geodata on Address will be completed by Data.com user
+            Test.startTest();
+            update addresses;
+            Test.stopTest();
+
+            Integer numberOfAddressesWithRightServiceTerritory = [
+                    SELECT COUNT()
+                    FROM Address
+                    WHERE (Id IN :laAddresses AND TEKCO_ServiceTerritory__c = :laAreaPolygon.FSL__Service_Territory__c)
+                    OR (Id IN :nyAddresses AND TEKCO_ServiceTerritory__c = :nyAreaPolygon.FSL__Service_Territory__c)
+                    OR (Id IN :noPolygonAddresses AND TEKCO_ServiceTerritory__c = NULL)
+            ];
+
+            System.assertEquals(
+                    laAddresses.size() + nyAddresses.size() + noPolygonAddresses.size(),
+                    numberOfAddressesWithRightServiceTerritory,
+                    'Seems like something went wrong with defining of service territories'
+            );
+        }
+    }
+
+    /**
+       * @author Oleh Bohdanovych, 12/07/2021
+       * @description Polygon's Service Territory should be set for new  Address
+       *                with filled Latitude ang Longitude
+       *                in case if the address is covered by Polygon
+   */
+    @IsTest
+    public static void setServiceTerritoryForNewAddress() {
+        TestContext.BRAND = GlobalConstants.BRAND_CAN_POX;
+        TestContext.COUNTRY = GlobalConstants.COUNTRY_CANADA;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+
+            FSL__Polygon__c laAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                    Test_MapPolygonHelper.PolygonArea.LA, true
+            );
+
+            FSL__Polygon__c nyAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                    Test_MapPolygonHelper.PolygonArea.NY, true
+            );
+
+            List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                    Test_PatientHelper.createDummyPatients(3 * NUMBER_OF_PATIENTS, true),
+                    STREET,
+                    CITY,
+                    null,
+                    null,
+                    AddressHelper.COUNTRY_CODE_UNITED_STATES,
+                    false
+            );
+
+            List<Schema.Address> laAddresses = new List<Schema.Address>();
+            List<Schema.Address> nyAddresses = new List<Schema.Address>();
+            List<Schema.Address> noPolygonAddresses = new List<Schema.Address>();
+
+            Integer currentAddressIndex = 1;
+            for (Schema.Address address : addresses) {
+                if (currentAddressIndex <= NUMBER_OF_PATIENTS) {
+                    address.Latitude = laAreaPolygon.FSL__Mi_La__c + LOCATION_OFFSET;
+                    address.Longitude = laAreaPolygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+                    address.TEKCO_GeolocationType__c = GlobalConstants.GEOLOCATED_MANUALLY;
+
+                    laAddresses.add(address);
+                } else if (currentAddressIndex > NUMBER_OF_PATIENTS && currentAddressIndex <= NUMBER_OF_PATIENTS * 2) {
+                    address.Latitude = nyAreaPolygon.FSL__Mi_La__c + LOCATION_OFFSET;
+                    address.Longitude = nyAreaPolygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+                    address.TEKCO_GeolocationType__c = GlobalConstants.GEOLOCATED_MANUALLY;
+
+                    nyAddresses.add(address);
+                } else {
+                    address.Latitude = laAreaPolygon.FSL__Mi_La__c ;
+                    address.Longitude = nyAreaPolygon.FSL__Ma_Lo__c;
+                    address.TEKCO_GeolocationType__c = GlobalConstants.GEOLOCATED_MANUALLY;
+
+                    noPolygonAddresses.add(address);
+                }
+                currentAddressIndex++;
+            }
+
+            Test.startTest();
+
+            List<Schema.Address> allAddresses = new List<Schema.Address>();
+            allAddresses.addAll(laAddresses);
+            allAddresses.addAll(nyAddresses);
+            allAddresses.addAll(noPolygonAddresses);
+
+            insert allAddresses;
+
+            Test.stopTest();
+
+            Integer numberOfAddressesWithRightServiceTerritory = [
+                    SELECT COUNT()
+                    FROM Address
+                    WHERE (Id IN :laAddresses AND TEKCO_ServiceTerritory__c = :laAreaPolygon.FSL__Service_Territory__c)
+                    OR (Id IN :nyAddresses AND TEKCO_ServiceTerritory__c = :nyAreaPolygon.FSL__Service_Territory__c)
+                    OR (Id IN :noPolygonAddresses AND TEKCO_ServiceTerritory__c = NULL)
+            ];
+
+            System.assertEquals(
+                    laAddresses.size() + nyAddresses.size() + noPolygonAddresses.size(),
+                    numberOfAddressesWithRightServiceTerritory,
+                    'Seems like something went wrong with defining of service territories'
+            );
+        }
+    }
+
+    @IsTest
+    public static void setServiceTerritoryForNewOverlappingPolygons() {
+        List<ServiceTerritory> serviceTerritories =
+                Test_ServiceTerritoryHelper.createListOfDummyTerritories(NUMBER_OF_ADDRESSES, true);
+
+        ServiceTerritory defaultServiceTerritory = [SELECT Id FROM ServiceTerritory ORDER BY CreatedDate DESC LIMIT 1];
+        defaultServiceTerritory.FSOCO_IsDefaultServiceTerritoryAddress__c = true;
+        defaultServiceTerritory.WKFCO_Type__c = ServiceTerritoryHelper.TYPE_LOGISTICS_SECTOR;
+
+        ServiceTerritory branch = Test_ServiceTerritoryHelper.createDummyTerritory(false);
+        branch.WKFCO_Type__c = ServiceTerritoryHelper.TYPE_BRANCH;
+        insert branch;
+
+        defaultServiceTerritory.FSOCO_Branch__c = branch.Id;
+        update defaultServiceTerritory;
+
+        List<FSL__Polygon__c> polygonsToInsert = new List<FSL__Polygon__c>();
+        for (ServiceTerritory st : serviceTerritories) {
+            polygonsToInsert.add(
+                    Test_MapPolygonHelper.createDummyMapPolygon(Test_MapPolygonHelper.PolygonArea.NY, st.Id, false));
+        }
+        insert polygonsToInsert;
+
+        List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                Test_PatientHelper.createDummyPatients(NUMBER_OF_ADDRESSES, true),
+                STREET,
+                CITY,
+                AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_CANADA,
+                false
+        );
+
+        FSL__Polygon__c polygon = [SELECT Id, FSL__Mi_La__c, FSL__Ma_Lo__c FROM FSL__Polygon__c LIMIT 1];
+
+        for (Schema.Address address : addresses) {
+            address.Latitude = polygon.FSL__Mi_La__c + LOCATION_OFFSET;
+            address.Longitude = polygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+            address.TEKCO_GeolocationType__c = GlobalConstants.GEOLOCATED_MANUALLY;
+        }
+
+        Test.startTest();
+        insert addresses;
+        Test.stopTest();
+
+        System.assertEquals(NUMBER_OF_ADDRESSES, [
+                SELECT COUNT()
+                FROM Address
+                WHERE TEKCO_ServiceTerritory__c = :defaultServiceTerritory.Id
+        ]);
+    }
+
+    /**
+     * @author Oleh Bodanovych(oleh_bohdanovych@epam.com), 10/29/2020
+     * @description Polygon's Service Territory should not be set for Address
+     * in case if the Address has different brand that Polygon
+     */
+    @IsTest
+    public static void serviceTerritoryNotSetForAddressWithDifferentBrand() {
+
+        FSL__Polygon__c laAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                Test_MapPolygonHelper.PolygonArea.LA, true
+        );
+
+        List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                Test_PatientHelper.createDummyPatients(1 * NUMBER_OF_PATIENTS, true),
+                STREET,
+                CITY,
+                AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_CANADA,
+                false
+        );
+
+        insert addresses;
+
+        // set coordinates inside existing polygon but with different Brand on Address
+        for (Schema.Address laAddress : addresses) {
+            laAddress.Latitude = laAreaPolygon.FSL__Mi_La__c + LOCATION_OFFSET;
+            laAddress.Longitude = laAreaPolygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+            laAddress.TEKCO_Brand__c = GlobalConstants.BRAND_002;
+        }
+
+        // update of geodata on Address will be completed by Data.com user
+        Test.startTest();
+
+        update addresses;
+
+        Test.stopTest();
+
+        Integer numberOfAddressesWithoutServiceTerritory = [
+                SELECT COUNT()
+                FROM Address
+                WHERE Id IN :addresses AND TEKCO_ServiceTerritory__c = NULL
+        ];
+
+        System.assertEquals(
+                addresses.size(),
+                numberOfAddressesWithoutServiceTerritory,
+                'Address is not covered by existing Polygons, Service Territory should not be set'
+        );
+    }
+
+    /**
+        * @author Oleg_Zykyi(oleg_zykyi@epam.com), 2020-11-24
+        * @description Check that Backup Id is populated by Functional Id value on all created records
+    */
+    @IsTest
+    private static void setBackupIdOnAfterInsert() {
+
+        List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, true),
+                STREET,
+                CITY,
+                AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_CANADA,
+                false
+        );
+
+        Test.startTest();
+        BackupIdHelper.testMode = true;
+        insert addresses;
+        Test.stopTest();
+
+        for (Schema.Address address : [
+                SELECT Id, TEKCO_BackupID__c, TEKCO_FunctionalId__c
+                FROM Address
+                WHERE Id IN :addresses
+        ]) {
+            Assert.isNotNull(address.TEKCO_BackupID__c);
+        }
+    }
+
+    /**
+        * @author Hemdene_Ben_Hammouda(hemdene.benhammouda-sc@airliquide.com), 2023-09-28
+        * @description Check that Backup Id is populated randomly in before insert
+    */
+    @IsTest
+    private static void setBackupIdOnBeforeInsert() {
+
+        List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, true),
+                STREET,
+                CITY,
+                AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_CANADA,
+                false
+        );
+
+        Test.startTest();
+        BackupIdHelper.testMode = true;
+        BackupIdHelper.testModeOptimization = true;
+        insert addresses;
+        Test.stopTest();
+
+        for (Schema.Address address : [
+                SELECT Id, TEKCO_BackupID__c
+                FROM Address
+                WHERE Id IN :addresses
+        ]) {
+            Assert.isTrue(address.TEKCO_BackupID__c
+                    .startsWith(BackupIdHelper.OBJECTS_BACKUP_PARAMS.get(Schema.Address.SObjectType).objectPrefixString),
+                    'Backup Id starts with correct prefix');
+        }
+    }
+
+    /**
+     * @author Viktor Saranchuk(viktor.saranchuk@epam.com), 01/12/2021
+     * @description create and set Schema.Location as Parent
+     */
+    @IsTest
+    private static void createLocationAndSetParentIdOnInsertingAddress() {
+        delete [SELECT Id FROM Location];
+
+        Account account = [SELECT Id, Name FROM Account WHERE RecordTypeId = :AccountHelper.PATIENT_RT_ID LIMIT 1];
+
+        Test.startTest();
+        Schema.Address address = Test_AddressHelper.createAddressesForPatient(account.Id,
+                null,
+                LocationHelper.LOCATION_TYPE_NATIONAL,
+                false);
+        address.CTCCO_MainAddress__c = true;
+        address.CTCCO_IsActive__c = true;
+        insert address;
+        Test.stopTest();
+
+        Integer numberOfLocations = [SELECT COUNT() FROM Location WHERE ACCCO_RelatedAccount__c = :account.Id];
+        System.assertEquals(1, numberOfLocations, 'Location is not created or old locations were not deleted');
+    }
+
+    /**
+     * @author Viktor Saranchuk(viktor.saranchuk@epam.com), 01/12/2021
+     * @description set Schema.Location as Parent
+     */
+    @IsTest
+    private static void setParentIdOnInsertingAddress() {
+        delete [SELECT Id FROM Location];
+
+        Account account = [SELECT Id, Name FROM Account WHERE RecordTypeId = :AccountHelper.PATIENT_RT_ID LIMIT 1];
+        Schema.Location location = Test_LocationHelper.createDummyLocation(LocationHelper.LOCATION_TYPE_NATIONAL,
+                false);
+        location.Name = STREET;
+        location.ACCCO_RelatedAccount__c = account.Id;
+        insert location;
+
+        Test.startTest();
+        Schema.Address address = Test_AddressHelper.createAddressesForPatient(account.Id,
+                null,
+                LocationHelper.LOCATION_TYPE_NATIONAL,
+                false);
+        address.CTCCO_MainAddress__c = true;
+        address.CTCCO_IsActive__c = true;
+        insert address;
+        Test.stopTest();
+
+        address = [SELECT Id, Parent.Name FROM Address WHERE Id = :address.Id];
+        System.assertEquals(location.Name, address.Parent.Name);
+    }
+
+    /**
+     * @author Viktor Saranchuk(viktor.saranchuk@epam.com), 01/12/2021
+     * @description set null as Parent
+     */
+    @IsTest
+    private static void setEmptyParentIdOnInsertingAddress() {
+
+        Test.startTest();
+        Exception cathedException;
+        try {
+            Schema.Address address = Test_AddressHelper.createDummyAddress(null,
+                    null,
+                    LocationHelper.LOCATION_TYPE_NATIONAL,
+                    false);
+            address.CTCCO_MainAddress__c = true;
+            address.CTCCO_IsActive__c = true;
+            insert address;
+        } catch (Exception e) {
+            cathedException = e;
+        }
+        Test.stopTest();
+
+        System.assertNotEquals(null, cathedException);
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com)
+        * @description Create locations for accounts and service resources to use them as parent of addresses
+    */
+    public static void createLocationForParents(List<SObject> parents) {
+
+        List<Schema.Location> locations = Test_LocationHelper.createDummyLocations(
+                LocationHelper.LOCATION_TYPE_PATIENT_HOME,
+                parents.size(),
+                false);
+
+        Integer i = 0;
+
+        for (i = 0; i < parents.size(); i++) {
+            if (parents[i].Id.getSobjectType() == ServiceResource.SObjectType) {
+                locations[i].WFMCA_RelatedServiceResource__c = parents[i].Id;
+            } else {
+                locations[i].ACCCO_RelatedAccount__c = parents[i].Id;
+            }
+        }
+
+        insert locations;
+    }
+
+    /**
+    * @author Mykhaylo Kovalov (Mykhaylo_Kovalov@epam.com)
+    * @description update brazil individuals with changed mailing address updates related address records
+    */
+    @IsTest
+    private static void brazilUpdateIndividualWithMainAddressChange() {
+
+        List<Account> individuals = Test_IndividualHelper.createDummyIndividuals(NUMBER_OF_INDIVIDUALS, false);
+        for (Account individual : individuals) {
+            individual = AccountHelper.setAccountAddress(
+                    individual,
+                    AccountHelper.ADDRESS_TYPE_MAILING,
+                    STREET,
+                    CITY,
+                    AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_UNITED_STATES
+            );
+        }
+
+        insert individuals;
+
+        List<Schema.Address> addresses = getAddresses(individuals);
+
+        Map<Id, Schema.Address> addressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : addresses) {
+            addressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        System.assertEquals(NUMBER_OF_INDIVIDUALS, addressesByAccountIds.values().size(), 'There should be ' + NUMBER_OF_INDIVIDUALS + 'addresses');
+
+        for (Integer i = 0; i < individuals.size(); i++) {
+            individuals[i] = AccountHelper.setAccountAddress(
+                    individuals[i],
+                    AccountHelper.ADDRESS_TYPE_MAILING,
+                    STREET + i,
+                    CITY + i,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE + i,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+            individuals[i].TEKCO_Country__c = GlobalConstants.COUNTRY_BRAZIL;
+            individuals[i].TEKCO_Brands__c = GlobalConstants.BRAND_BRA_VIT;
+            individuals[i].CUSBR_ComplementInformation__c = MAILING_COMPLEMENT_INFORMATION;
+            individuals[i].CUSBR_Neighborhood__c = MAILING_NEIGHBORHOOD;
+        }
+
+        Test.startTest();
+        update individuals;
+        Test.stopTest();
+
+        List<Schema.Address> updatedAddresses = getAddresses(individuals);
+
+        System.assertEquals(addressesByAccountIds.values().size(), updatedAddresses.size());
+        for (Schema.Address newAddress : updatedAddresses) {
+            Schema.Address oldAddress = addressesByAccountIds.get(newAddress.ACCCO_RelatedAccount__c);
+
+            System.assertEquals(oldAddress.Id, newAddress.Id);
+            System.assertNotEquals(oldAddress.City, newAddress.City);
+            System.assertNotEquals(oldAddress.CountryCode, newAddress.CountryCode);
+            System.assertNotEquals(oldAddress.Street, newAddress.Street);
+            System.assertNotEquals(oldAddress.StateCode, newAddress.StateCode);
+            System.assertNotEquals(oldAddress.PostalCode, newAddress.PostalCode);
+            System.assertNotEquals(oldAddress.CUSBR_ComplementInformation__c, newAddress.CUSBR_ComplementInformation__c);
+            System.assertNotEquals(oldAddress.CUSBR_Neighborhood__c, newAddress.CUSBR_Neighborhood__c);
+        }
+    }
+
+    /**
+     * @author Hlib Ostapenko (hlib_ostapenko@epam.com)
+     * @description update individuals with changed mailing address updates related address records
+     */
+    @IsTest
+    private static void updateIndividualWithMainAddressChange() {
+
+        List<Account> individuals = Test_IndividualHelper.createDummyIndividuals(NUMBER_OF_INDIVIDUALS, false);
+        for (Account individual : individuals) {
+            individual = AccountHelper.setAccountAddress(
+                    individual,
+                    AccountHelper.ADDRESS_TYPE_MAILING,
+                    STREET,
+                    CITY,
+                    AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_UNITED_STATES
+            );
+        }
+
+        insert individuals;
+
+        Map<Id, Account> oldIndividuals = new Map<Id, Account>();
+        for (Account individual : individuals) {
+            oldIndividuals.put(individual.Id, individual);
+        }
+
+        List<Schema.Address> addresses = [
+                SELECT City, State, StateCode, Street, PostalCode, Country, CountryCode, ACCCO_RelatedAccount__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :oldIndividuals.keySet()
+        ];
+
+        Map<Id, Schema.Address> addressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : addresses) {
+            addressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        System.assertEquals(NUMBER_OF_INDIVIDUALS, addresses.size(), 'There should be ' + NUMBER_OF_INDIVIDUALS + 'addresses');
+
+        for (Integer i = 0; i < individuals.size(); i++) {
+            individuals[i] = AccountHelper.setAccountAddress(
+                    individuals[i],
+                    AccountHelper.ADDRESS_TYPE_MAILING,
+                    STREET + i,
+                    CITY + i,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE + i,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+        }
+
+        Test.startTest();
+        update individuals;
+        Test.stopTest();
+
+        Map<Id, Account> newIndividuals = new Map<Id, Account> ();
+        for (Account individual : individuals) {
+            newIndividuals.put(individual.Id, individual);
+        }
+
+        List<Schema.Address> updatedAddresses = [
+                SELECT City, State, StateCode, Street, PostalCode, Country, CountryCode, ACCCO_RelatedAccount__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :newIndividuals.keySet()
+        ];
+
+        Map<Id, Schema.Address> updatedAddressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : updatedAddresses) {
+            updatedAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        System.assertEquals(addressesByAccountIds.size(), updatedAddressesByAccountIds.size());
+        for (Id accountId : updatedAddressesByAccountIds.keySet()) {
+            System.assertEquals(addressesByAccountIds.get(accountId).Id,
+                    updatedAddressesByAccountIds.get(accountId).Id);
+            System.assertNotEquals(addressesByAccountIds.get(accountId).City,
+                    updatedAddressesByAccountIds.get(accountId).City);
+            System.assertNotEquals(addressesByAccountIds.get(accountId).CountryCode,
+                    updatedAddressesByAccountIds.get(accountId).CountryCode);
+            System.assertNotEquals(addressesByAccountIds.get(accountId).Street,
+                    updatedAddressesByAccountIds.get(accountId).Street);
+            System.assertNotEquals(addressesByAccountIds.get(accountId).StateCode,
+                    updatedAddressesByAccountIds.get(accountId).StateCode);
+            System.assertNotEquals(addressesByAccountIds.get(accountId).PostalCode,
+                    updatedAddressesByAccountIds.get(accountId).PostalCode);
+        }
+    }
+
+    /**
+    * @author Mykhaylo Kovalov (Mykhaylo_Kovalov@epam.com)
+    * @description update Brazil business accounts with changed addresses updates related address records.
+    */
+    @IsTest
+    private static void brazilUpdateBusinessAccountsWithAddressChange() {
+
+        List<Account> businessAccounts = Test_AccountHelper.createDummyBusinessAccountsWithAddresses(
+                NUMBER_OF_INDIVIDUALS,
+                NAME,
+                STREET,
+                CITY,
+                AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_UNITED_STATES,
+                true
+        );
+
+        Map<Id, Schema.Address> businessAddressesMap = new Map<Id, Schema.Address>([
+                SELECT City,
+                        StateCode,
+                        Street,
+                        PostalCode,
+                        CountryCode,
+                        CUSBR_ComplementInformation__c,
+                        CUSBR_Neighborhood__c,
+                        ACCCO_RelatedAccount__c,
+                        CTCCO_ShippingAddress__c,
+                        CTCCO_BillingAddress__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND (CTCCO_ShippingAddress__c = TRUE OR CTCCO_BillingAddress__c = TRUE)
+                AND CTCCO_MainAddress__c = TRUE
+        ]);
+
+        for (Integer i = 0; i < NUMBER_OF_INDIVIDUALS; i++) {
+
+            AccountHelper.setAccountAddress(
+                    businessAccounts[i],
+                    AccountHelper.ADDRESS_TYPE_SHIPPING,
+                    STREET + STREET + i,
+                    CITY + CITY + i,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE + POSTAL_CODE + i,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+            AccountHelper.setAccountAddress(
+                    businessAccounts[i],
+                    AccountHelper.ADDRESS_TYPE_BILLING,
+                    STREET + STREET + i,
+                    CITY + CITY + i,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE + POSTAL_CODE + i,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+            businessAccounts[i].TEKCO_Country__c = GlobalConstants.COUNTRY_BRAZIL;
+            businessAccounts[i].TEKCO_Brands__c = GlobalConstants.BRAND_BRA_VIT;
+            businessAccounts[i].CUSBR_BillingComplementInformation__c = BILLING_COMPLEMENT_INFORMATION;
+            businessAccounts[i].CUSBR_ShippingComplementInformation__c = SHIPPING_COMPLEMENT_INFORMATION;
+            businessAccounts[i].CUSBR_BillingNeighborhood__c = BILLING_NEIGHBORHOOD;
+            businessAccounts[i].CUSBR_ShippingNeighborhood__c = SHIPPING_NEIGHBORHOOD;
+        }
+
+        Test.startTest();
+        update businessAccounts;
+        Test.stopTest();
+
+        List<Schema.Address> updatedBusinessAddresses = [
+                SELECT City,
+                        StateCode,
+                        Street,
+                        PostalCode,
+                        CountryCode,
+                        CUSBR_ComplementInformation__c,
+                        CUSBR_Neighborhood__c,
+                        ACCCO_RelatedAccount__c,
+                        CTCCO_ShippingAddress__c,
+                        CTCCO_BillingAddress__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND (CTCCO_ShippingAddress__c = TRUE OR CTCCO_BillingAddress__c = TRUE)
+                AND CTCCO_MainAddress__c = TRUE
+        ];
+
+        System.assertEquals(businessAddressesMap.size(), updatedBusinessAddresses.size());
+
+        for (Schema.Address newAddress : updatedBusinessAddresses) {
+            Schema.Address oldAddress = businessAddressesMap.get(newAddress.Id);
+
+            System.assertNotEquals(oldAddress.City, newAddress.City);
+            System.assertNotEquals(oldAddress.CountryCode, newAddress.CountryCode);
+            System.assertNotEquals(oldAddress.Street, newAddress.Street);
+            System.assertNotEquals(oldAddress.StateCode, newAddress.StateCode);
+            System.assertNotEquals(oldAddress.PostalCode, newAddress.PostalCode);
+            System.assertNotEquals(oldAddress.CUSBR_ComplementInformation__c, newAddress.CUSBR_ComplementInformation__c);
+            System.assertNotEquals(oldAddress.CUSBR_Neighborhood__c, newAddress.CUSBR_Neighborhood__c);
+        }
+    }
+
+    /**
+     * @author Hlib Ostapenko (hlib_ostapenko@epam.com)
+     * @description update business accounts with changed addresses updates related address records
+     */
+    @IsTest
+    private static void updateBusinessAccountsWithAddressChange() {
+
+        List<Account> businessAccounts = Test_AccountHelper.createDummyBusinessAccountsWithAddresses(
+                NUMBER_OF_INDIVIDUALS,
+                NAME,
+                STREET,
+                CITY,
+                AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_UNITED_STATES,
+                true
+        );
+
+        List<Schema.Address> shippingAndBillingAddresses = [
+                SELECT
+                        ACCCO_RelatedAccount__c,
+                        City,
+                        CountryCode,
+                        CTCCO_BillingAddress__c,
+                        CTCCO_ShippingAddress__c,
+                        PostalCode,
+                        StateCode,
+                        Street
+                FROM Address
+                WHERE CTCCO_MainAddress__c = TRUE
+                AND ACCCO_RelatedAccount__c IN :businessAccounts
+                AND (CTCCO_BillingAddress__c = TRUE OR CTCCO_ShippingAddress__c = TRUE)
+        ];
+
+        System.assertEquals(NUMBER_OF_INDIVIDUALS * 2, shippingAndBillingAddresses.size());
+
+        Map<Id, Schema.Address> shippingAddressesByAccountIds = new Map<Id, Schema.Address>();
+        Map<Id, Schema.Address> billingAddressesByAccountIds = new Map<Id, Schema.Address>();
+
+        for (Schema.Address address : shippingAndBillingAddresses) {
+
+            if (address.CTCCO_ShippingAddress__c) {
+                shippingAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+            }
+
+            if (address.CTCCO_BillingAddress__c) {
+                billingAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+            }
+
+        }
+
+        for (Integer i = 0; i < NUMBER_OF_INDIVIDUALS; i++) {
+
+            AccountHelper.setAccountAddress(
+                    businessAccounts[i],
+                    AccountHelper.ADDRESS_TYPE_SHIPPING,
+                    STREET + STREET + i,
+                    CITY + CITY + i,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE + POSTAL_CODE + i,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+            AccountHelper.setAccountAddress(
+                    businessAccounts[i],
+                    AccountHelper.ADDRESS_TYPE_BILLING,
+                    STREET + STREET + i,
+                    CITY + CITY + i,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE + POSTAL_CODE + i,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+        }
+
+        Test.startTest();
+        update businessAccounts;
+        Test.stopTest();
+
+        List<Schema.Address> updatedMainAddresses = [
+                SELECT City, StateCode, Street, PostalCode, CountryCode, ACCCO_RelatedAccount__c, CTCCO_BillingAddress__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND (CTCCO_ShippingAddress__c = TRUE OR CTCCO_BillingAddress__c = TRUE)
+                AND CTCCO_MainAddress__c = TRUE
+        ];
+
+        for (Schema.Address address : updatedMainAddresses) {
+
+            Id accountId = address.ACCCO_RelatedAccount__c;
+
+            Schema.Address oldAddress = address.CTCCO_BillingAddress__c
+                    ? billingAddressesByAccountIds.get(accountId)
+                    : shippingAddressesByAccountIds.get(accountId);
+
+            System.assertEquals(oldAddress.Id, address.Id);
+            System.assertNotEquals(oldAddress.City, address.City);
+            System.assertNotEquals(oldAddress.CountryCode, address.CountryCode);
+            System.assertNotEquals(oldAddress.Street, address.Street);
+            System.assertNotEquals(oldAddress.StateCode, address.StateCode);
+            System.assertNotEquals(oldAddress.PostalCode, address.PostalCode);
+
+        }
+    }
+
+    /**
+    * @author Hlib Ostapenko (hlib_ostapenko@epam.com)
+    * @description create addresses on business accounts with addresses creates new related address records with 'Main Address' flag
+    */
+    @IsTest
+    private static void createMainAddressesOnBusinessAccountWithAddresses() {
+
+        List<Account> businessAccounts = Test_AccountHelper.createDummyBusinessAccountsWithAddresses(
+                NUMBER_OF_INDIVIDUALS,
+                NAME,
+                STREET,
+                CITY,
+                AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_UNITED_STATES,
+                true
+        );
+
+        List<Schema.Address> mainShippingAddresses = [
+                SELECT City, StateCode, Street, PostalCode, CountryCode, ACCCO_RelatedAccount__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND CTCCO_ShippingAddress__c = TRUE
+                AND CTCCO_MainAddress__c = TRUE
+        ];
+
+        List<Schema.Address> mainBillingAddresses = [
+                SELECT City, StateCode, Street, PostalCode, CountryCode, ACCCO_RelatedAccount__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND CTCCO_BillingAddress__c = TRUE
+                AND CTCCO_MainAddress__c = TRUE
+        ];
+
+        Map<Id, Schema.Address> shippingAddressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : mainShippingAddresses) {
+            shippingAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        Map<Id, Schema.Address> billingAddressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : mainBillingAddresses) {
+            billingAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        Map<Id, Schema.Location> locationsByAccountIds = new Map<Id, Schema.Location>();
+        for (Schema.Location location : [
+                SELECT ACCCO_RelatedAccount__c
+                FROM Location
+                WHERE ACCCO_RelatedAccount__c = :businessAccounts
+        ]) {
+
+            locationsByAccountIds.put(location.ACCCO_RelatedAccount__c, location);
+        }
+
+        List<Schema.Address> addresses = new List<Schema.Address>();
+        for (Account businessAccount : businessAccounts) {
+            Schema.Address billingAddress = AddressHelper.setAddressDetails(
+                    new Schema.Address(
+                            ACCCO_RelatedAccount__c = businessAccount.Id,
+                            ParentId = locationsByAccountIds.get(businessAccount.Id).Id
+                    ),
+                    STREET,
+                    CITY,
+                    AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_UNITED_STATES
+            );
+            billingAddress.CTCCO_BillingAddress__c = true;
+            billingAddress.CTCCO_MainAddress__c = true;
+            billingAddress.ACCCO_Title__c = NAME;
+
+            Schema.Address shippingAddress = AddressHelper.setAddressDetails(
+                    new Schema.Address(
+                            ACCCO_RelatedAccount__c = businessAccount.Id,
+                            ParentId = locationsByAccountIds.get(businessAccount.Id).Id
+                    ),
+                    STREET,
+                    CITY,
+                    AddressHelper.UNITED_STATES_STATE_CODE_NEW_YORK,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_UNITED_STATES
+            );
+            shippingAddress.CTCCO_ShippingAddress__c = true;
+            shippingAddress.CTCCO_MainAddress__c = true;
+            shippingAddress.ACCCO_Title__c = NAME;
+
+            addresses.add(billingAddress);
+            addresses.add(shippingAddress);
+        }
+
+        Test.startTest();
+        insert addresses;
+        Test.stopTest();
+
+        List<Schema.Address> newMainShippingAddresses = [
+                SELECT ACCCO_RelatedAccount__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND CTCCO_ShippingAddress__c = TRUE
+                AND CTCCO_MainAddress__c = TRUE
+        ];
+
+        List<Schema.Address> newMainBillingAddresses = [
+                SELECT ACCCO_RelatedAccount__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :businessAccounts
+                AND CTCCO_BillingAddress__c = TRUE
+                AND CTCCO_MainAddress__c = TRUE
+        ];
+
+        Map<Id, Schema.Address> newShippingAddressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : newMainShippingAddresses) {
+            newShippingAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        Map<Id, Schema.Address> newBillingAddressesByAccountIds = new Map<Id, Schema.Address>();
+        for (Schema.Address address : newMainBillingAddresses) {
+            newBillingAddressesByAccountIds.put(address.ACCCO_RelatedAccount__c, address);
+        }
+
+        for (Id accountId : newShippingAddressesByAccountIds.keySet()) {
+            System.assertNotEquals(shippingAddressesByAccountIds.get(accountId).Id,
+                    newShippingAddressesByAccountIds.get(accountId).Id);
+            System.assertEquals(shippingAddressesByAccountIds.get(accountId).ACCCO_RelatedAccount__c,
+                    newShippingAddressesByAccountIds.get(accountId).ACCCO_RelatedAccount__c);
+        }
+
+        for (Id accountId : newBillingAddressesByAccountIds.keySet()) {
+            System.assertNotEquals(billingAddressesByAccountIds.get(accountId).Id,
+                    newBillingAddressesByAccountIds.get(accountId).Id);
+            System.assertEquals(billingAddressesByAccountIds.get(accountId).ACCCO_RelatedAccount__c,
+                    newBillingAddressesByAccountIds.get(accountId).ACCCO_RelatedAccount__c);
+        }
+    }
+
+    /**
+     * @author Anna Kudriashova anna_kudriashova@epam.com
+     * @description Set Canada Billing and Shipping addresses as true when Address record is generated
+     */
+    @IsTest
+    private static void canadaShippingBillingAddresseSetAsTrue() {
+        List<Account> patients = Test_IndividualHelper.createDummyIndividuals(NUMBER_OF_INDIVIDUALS, false);
+
+        for (Account patient : patients) {
+            patient = AccountHelper.setAccountAddress(
+                    patient,
+                    AccountHelper.ADDRESS_TYPE_MAILING,
+                    STREET,
+                    CITY,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+            patient.TEKCO_Country__c = GlobalConstants.COUNTRY_CANADA;
+            patient.TEKCO_Brands__c = GlobalConstants.BRAND_CAN_IRS;
+        }
+
+        Test.startTest();
+        insert patients;
+        Test.stopTest();
+
+        List<Schema.Address> addresses = [
+                SELECT ACCCO_RelatedAccount__c, CTCCO_BillingAddress__c, CTCCO_ShippingAddress__c
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :patients
+                AND CTCCO_ShippingAddress__c = TRUE
+                AND CTCCO_BillingAddress__c = TRUE
+        ];
+
+        System.assertEquals(NUMBER_OF_INDIVIDUALS, addresses.size(), 'There should be ' + NUMBER_OF_INDIVIDUALS + ' addresses');
+    }
+
+    @IsTest
+    public static void beforeInsert_validateUniqMainServiceResourceAddresses() {
+        Exception exc;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            for (Schema.Address address : addresses) {
+                address.CTCCO_MainAddress__c = true;
+            }
+
+            Test.startTest();
+            try {
+                insert addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_SERVICE_RESOURCE);
+        System.assert(
+                exc.getMessage().contains(System.Label.CTCCO_MainAddressCanBeOnlyOne),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.CTCCO_MainAddressCanBeOnlyOne,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    @IsTest
+    public static void beforeUpdate_validateUniqMainServiceResourceAddresses() {
+        Exception exc;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            insert addresses;
+
+            for (Schema.Address address : addresses) {
+                address.CTCCO_MainAddress__c = true;
+            }
+
+            Test.startTest();
+            try {
+                update addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, 'There should be an exception after updating Addresses');
+        System.assert(
+                exc.getMessage().contains(System.Label.CTCCO_MainAddressCanBeOnlyOne),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.CTCCO_MainAddressCanBeOnlyOne,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    @IsTest
+    public static void afterInsert_validateActiveMainServiceResourceAddresses() {
+        Exception exc;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+
+            for (Schema.Address address : addresses) {
+                address.CTCCO_MainAddress__c = false;
+            }
+
+            Test.startTest();
+            try {
+                insert addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_SERVICE_RESOURCE);
+        System.assert(
+                exc.getMessage().contains(System.Label.WKFCA_MustBeAtLeastOneMainAddress),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.WKFCA_MustBeAtLeastOneMainAddress,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    @IsTest
+    public static void afterUpdate_validateActiveMainServiceResourceAddresses() {
+        Exception exc;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            insert addresses;
+
+            for (Schema.Address address : addresses) {
+                address.CTCCO_MainAddress__c = false;
+            }
+
+            Test.startTest();
+            try {
+                update addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_SERVICE_RESOURCE);
+        System.assert(
+                exc.getMessage().contains(System.Label.WKFCA_MustBeAtLeastOneMainAddress),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.WKFCA_MustBeAtLeastOneMainAddress,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    @IsTest
+    public static void afterDelete_validateActiveMainServiceResourceAddresses() {
+        Exception exc;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            insert addresses;
+
+            List<Schema.Address> addressesToDelete = new List<Schema.Address>();
+            for (Schema.Address address : addresses) {
+
+                if (address.CTCCO_MainAddress__c) {
+                    addressesToDelete.add(address);
+                }
+            }
+
+            Test.startTest();
+            try {
+                delete addressesToDelete;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+        }
+
+        System.assert(exc != null, ASSERT_MSG_INSERT_EXCEPTION_FOR_SERVICE_RESOURCE);
+        System.assert(
+                exc.getMessage().contains(System.Label.WKFCA_MustBeAtLeastOneMainAddress),
+                String.format(ASSERT_MSG_ERROR_MUST_CONTAIN, new List<String>{
+                        System.Label.WKFCA_MustBeAtLeastOneMainAddress,
+                        exc.getMessage()
+                })
+        );
+    }
+
+    @IsTest
+    public static void afterInsert_uncheckServiceResourceMainAddresses() {
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+
+            Map<Id, Schema.Address> mainAddressByServiceResourceId = new Map<Id, Schema.Address>();
+            Map<Id, Schema.Address> notMainAddressByServiceResourceId = new Map<Id, Schema.Address>();
+
+            for (Schema.Address address : addresses) {
+
+                if (address.CTCCO_MainAddress__c
+                        && !mainAddressByServiceResourceId.containsKey(address.WFMCA_ServiceResource__c)) {
+                    mainAddressByServiceResourceId.put(address.WFMCA_ServiceResource__c, address);
+                } else if (!notMainAddressByServiceResourceId.containsKey(address.WFMCA_ServiceResource__c)) {
+                    address.CTCCO_MainAddress__c = true;
+                    notMainAddressByServiceResourceId.put(address.WFMCA_ServiceResource__c, address);
+                }
+            }
+
+            insert mainAddressByServiceResourceId.values();
+
+            Test.startTest();
+            insert notMainAddressByServiceResourceId.values();
+            Test.stopTest();
+
+            Integer notMainAddressesNo = [
+                    SELECT COUNT()
+                    FROM Address
+                    WHERE Id = :mainAddressByServiceResourceId.values()
+                    AND CTCCO_MainAddress__c = FALSE
+            ];
+
+            System.assertEquals(
+                    notMainAddressesNo,
+                    mainAddressByServiceResourceId.values().size(),
+                    mainAddressByServiceResourceId.values().size() + ' Addresses should no longer be main after insert'
+            );
+        }
+    }
+
+    @IsTest
+    public static void afterUpdate_uncheckServiceResourceMainAddresses() {
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            insert addresses;
+
+            Map<Id, Schema.Address> mainAddressByServiceResourceId = new Map<Id, Schema.Address>();
+            Map<Id, Schema.Address> notMainAddressByServiceResourceId = new Map<Id, Schema.Address>();
+
+            for (Schema.Address address : addresses) {
+
+                if (address.CTCCO_MainAddress__c
+                        && !mainAddressByServiceResourceId.containsKey(address.WFMCA_ServiceResource__c)) {
+                    mainAddressByServiceResourceId.put(address.WFMCA_ServiceResource__c, address);
+                } else if (!notMainAddressByServiceResourceId.containsKey(address.WFMCA_ServiceResource__c)) {
+                    address.CTCCO_MainAddress__c = true;
+                    notMainAddressByServiceResourceId.put(address.WFMCA_ServiceResource__c, address);
+                }
+            }
+
+            Test.startTest();
+            update notMainAddressByServiceResourceId.values();
+            Test.stopTest();
+
+            Integer notMainAddressesNo = [
+                    SELECT COUNT()
+                    FROM Address
+                    WHERE Id = :mainAddressByServiceResourceId.values()
+                    AND CTCCO_MainAddress__c = FALSE
+            ];
+
+            System.assertEquals(
+                    notMainAddressesNo,
+                    mainAddressByServiceResourceId.values().size(),
+                    mainAddressByServiceResourceId.values().size() + ' Addresses should no longer be main after update'
+            );
+        }
+    }
+
+    @IsTest
+    public static void afterUpdate_uncheckServiceResourceMainAddresses_allInactive() {
+        Exception exc;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            insert addresses;
+
+            for (Schema.Address address : addresses) {
+                address.CTCCO_IsActive__c = false;
+            }
+
+            Test.startTest();
+            try {
+                update addresses;
+            } catch (Exception e) {
+                exc = e;
+            }
+            Test.stopTest();
+
+            System.assert(exc == null, 'There should not be an exception after updating inactive Addresses');
+        }
+    }
+
+    @IsTest
+    public static void setBrandAndCountryForServiceResource() {
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            List<Schema.Address> addresses = createdAddressesUsingResourceAndLocations(false);
+            for (Schema.Address address : addresses) {
+                address.TEKCO_Brand__c = GlobalConstants.BRAND_002;
+            }
+
+            Test.startTest();
+            insert addresses;
+            Test.stopTest();
+
+            addresses = [
+                    SELECT
+                            TEKCO_Brand__c,
+                            TEKCO_Country__c,
+                            WFMCA_ServiceResource__r.TEKCO_Brand__c,
+                            WFMCA_ServiceResource__r.TEKCO_Country__c
+                    FROM Address
+                    WHERE Id = :addresses
+            ];
+
+            for (Schema.Address addr : addresses) {
+                System.assertEquals(addr.WFMCA_ServiceResource__r.TEKCO_Brand__c, addr.TEKCO_Brand__c);
+                System.assertEquals(addr.WFMCA_ServiceResource__r.TEKCO_Country__c, addr.TEKCO_Country__c);
+            }
+        }
+    }
+
+    @IsTest
+    public static void setBranchOnPatient() {
+        TestContext.BRAND = GlobalConstants.BRAND_CAN_POX;
+        TestContext.COUNTRY = GlobalConstants.COUNTRY_CANADA;
+
+        System.runAs(Test_UserHelper.getDummyUser()) {
+
+            FSL__Polygon__c laAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                    Test_MapPolygonHelper.PolygonArea.LA, true
+            );
+
+            ServiceTerritory branch = Test_ServiceTerritoryHelper.createDummyTerritory(false);
+            branch.WKFCO_Type__c = ServiceTerritoryHelper.TYPE_BRANCH;
+            insert branch;
+
+            update new ServiceTerritory(Id = laAreaPolygon.FSL__Service_Territory__c, FSOCO_Branch__c = branch.Id);
+
+            List<Schema.Address> laAddresses = Test_AddressHelper.createMainAddressesForPatients(
+                    Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, true),
+                    STREET,
+                    CITY,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_CANADA,
+                    true
+            );
+
+            // set coordinates inside existing polygon
+            for (Schema.Address laAddress : laAddresses) {
+                laAddress.Latitude = laAreaPolygon.FSL__Mi_La__c + 0.01;
+                laAddress.Longitude = laAreaPolygon.FSL__Ma_Lo__c - 0.01;
+            }
+
+            // update of geodata on Address will be completed by Data.com user
+            Test.startTest();
+            update laAddresses;
+            Test.stopTest();
+
+            List<Schema.Address> laList = [
+                    SELECT ACCCO_RelatedAccount__r.FSOCO_FSLBranch__c, TEKCO_ServiceTerritory__r.FSOCO_Branch__c
+                    FROM Address
+                    WHERE Id IN :laAddresses
+            ];
+
+            for (Schema.Address laAddress : laList) {
+                System.assertEquals(
+                        laAddress.ACCCO_RelatedAccount__r.FSOCO_FSLBranch__c,
+                        laAddress.TEKCO_ServiceTerritory__r.FSOCO_Branch__c,
+                        'Service territory of covering Polygon should be set for the address'
+                );
+            }
+        }
+    }
+
+    /**
+     * @author Dmitrii Konovalov (Dmitrii_Konovalov@epam.com), 04/02/2022
+     * @description Check if Warehouse is filled on Address
+     */
+    @IsTest
+    private static void canadaCheckWarehouseOnShippingAddress() {
+        List<Account> patients = Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, false);
+
+        for (Account patient : patients) {
+            patient = AccountHelper.setAccountAddress(
+                    patient,
+                    AccountHelper.ADDRESS_TYPE_MAILING,
+                    STREET,
+                    CITY,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_CANADA
+            );
+            patient.TEKCO_Country__c = GlobalConstants.COUNTRY_CANADA;
+            patient.TEKCO_Brands__c = GlobalConstants.BRAND_CAN_IRS;
+        }
+
+        insert patients;
+
+        ServiceTerritory serviceTerritory = Test_ServiceTerritoryHelper.createDummyTerritory(true);
+
+        List<Schema.Address> addresses = [
+                SELECT Id
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :patients
+        ];
+
+        for (Schema.Address addr : addresses) {
+            addr.TEKCO_ServiceTerritory__c = serviceTerritory.Id;
+        }
+
+        Test.startTest();
+        update addresses;
+        Test.stopTest();
+
+        patients = [
+                SELECT Id
+                FROM Account
+                WHERE TEKCO_EmptyWarehouse__c = TRUE
+        ];
+
+        System.assertEquals(NUMBER_OF_PATIENTS, patients.size(), 'There should be ' + NUMBER_OF_PATIENTS + ' patients');
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com) on 2/25/2022
+        * @description Assign warehouses after addresses were updated with service territory
+        *              Warehouses will be assigned only for active patients or medgas accounts
+    */
+    @IsTest
+    private static void assignWarehouseAfterSettingServiceTerritory() {
+
+        TestContext.COUNTRY = GlobalConstants.COUNTRY_CANADA;
+        TestContext.BRAND = GlobalConstants.BRAND_CAN_POX;
+
+        FSL__Polygon__c laAreaPolygon = Test_MapPolygonHelper.createDummyMapPolygonWithServiceTerritory(
+                Test_MapPolygonHelper.PolygonArea.LA, true
+        );
+
+        Account warehouse = Test_AccountHelper.createDummyAccount(AccountHelper.WAREHOUSE_RT_ID, 'Warehouse 13', true);
+        FWMCA_WarehouseTerritoryAssignment__c assignment = Test_WarehouseTerritoryAssignmentHelper.createDummyAssignment(
+                warehouse,
+                laAreaPolygon.FSL__Service_Territory__c,
+                false
+        );
+
+        assignment.FWMCA_TherapyGroups__c = TherapyHelper.GROUP_OXYGEN_NAME;
+
+        insert assignment;
+
+        List<Account> patients = Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, false);
+        for (Account patient : patients) {
+            patient.ACCCO_Status__c = AccountHelper.STATUS_ACTIVE;
+            patient.PersonMailingCity = CITY;
+            patient.PersonMailingStreet = STREET;
+            patient.PersonMailingStateCode = AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA;
+            patient.PersonMailingCountryCode = GlobalConstants.COUNTRY_CODE_CANADA;
+            patient.PersonMailingPostalCode = '21312352345';
+        }
+
+        insert patients;
+
+        List<Schema.Address> addresses = Test_AddressHelper.createMainAddressesForPatients(
+                patients,
+                STREET,
+                CITY,
+                AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                POSTAL_CODE,
+                AddressHelper.COUNTRY_CODE_CANADA,
+                true
+        );
+
+        System.assertEquals(addresses.size(), [
+                SELECT COUNT()
+                FROM Address
+                WHERE Id IN :addresses AND TEKCO_ServiceTerritory__c = NULL AND WKFCA_Warehouse__c = NULL
+        ]);
+
+        // set coordinates inside existing polygon
+        for (Schema.Address laAddress : addresses) {
+            laAddress.Latitude = laAreaPolygon.FSL__Mi_La__c + LOCATION_OFFSET;
+            laAddress.Longitude = laAreaPolygon.FSL__Ma_Lo__c - LOCATION_OFFSET;
+        }
+
+        Test.startTest();
+        update addresses;
+        Test.stopTest();
+
+        System.assertEquals(addresses.size(), [
+                SELECT COUNT()
+                FROM Address
+                WHERE Id IN :addresses AND TEKCO_ServiceTerritory__c != NULL AND WKFCA_Warehouse__c = :warehouse.Id
+        ]);
+    }
+
+    /**
+         * @author Yaheni Paulouski (yauheni.paulouski-sc@airliquide.com ) on 04.07.2022
+         * @description SUPPORT-2979 (validation account description address after address description field update)
+    */
+    @IsTest
+    private static void updatePatientDescriptionTest() {
+        System.runAs(Test_UserHelper.getDummyUser()) {
+            TestContext.BRAND = GlobalConstants.BRAND_DINNO;
+            TestContext.COUNTRY = GlobalConstants.COUNTRY_FRANCE;
+
+            Account posAccount = Test_POSHelper.createDummyPOS(true);
+
+            List<Account> patientAccList = Test_PatientHelper.createActiveDummyPatientsWithAddress(NUMBER_OF_PATIENTS, false);
+
+            for (Account acc : patientAccList) {
+                acc.CUSCA_Branch__c = posAccount.Id;
+                acc.CUSDI_DescriptionAddress__c = 'Patients description';
+            }
+
+            Test.startTest();
+
+            insert patientAccList;
+
+            List<Schema.Address> addresses = [
+                    SELECT Id, Description
+                    FROM Address
+            ];
+
+            for (Schema.Address address : addresses) {
+                address.Description = ADDRESS_DESCRIPTION;
+            }
+
+            update addresses;
+
+            Test.stopTest();
+
+            List<Account> accountList = [
+                    SELECT Id, CUSDI_DescriptionAddress__c, RecordTypeId
+                    FROM Account
+                    WHERE TEKCO_Country__c = :GlobalConstants.COUNTRY_FRANCE
+                    AND RecordTypeId != :AccountHelper.POS_RT_ID
+            ];
+
+            for (Account patient : accountList) {
+                System.assertEquals(ADDRESS_DESCRIPTION, patient.CUSDI_DescriptionAddress__c, 'Address description should be equal patient description address');
+            }
+        }
+    }
+
+    /**
+        * @author Aleksei Bezmoshchuk(aleksei_bezmoshchuk@epam.com), 9/21/2020
+        * @description Create addresses for each location/account (NUMBER_OF_ADDRESSES per location)
+        * @param toInsert - insert these addresses or not
+        * @return all addresses
+    */
+    private static List<Schema.Address> createdAddressesUsingPatientAndLocations(Boolean toInsert) {
+
+        List<Schema.Location> locations = [
+                SELECT ACCCO_RelatedAccount__c, LocationType
+                FROM Location
+                WHERE ACCCO_RelatedAccount__c != NULL
+        ];
+        List<Schema.Address> addresses = new List<Schema.Address>();
+
+        for (Schema.Location location : locations) {
+            addresses.addAll(createdAddresses(location.ACCCO_RelatedAccount__c, location));
+        }
+
+        if (toInsert) {
+            insert addresses;
+        }
+
+        return addresses;
+    }
+
+    /**
+     * @author Olga_Volakova (Olga_Volakova@epam.com) on 03.09.2021
+     * @description creates addresses for Service Resources
+     * @param toInsert insert these addresses or not
+     * @return new List<Schema.Address>
+    */
+    private static List<Schema.Address> createdAddressesUsingResourceAndLocations(Boolean toInsert) {
+
+        List<Schema.Location> locations = [
+                SELECT WFMCA_RelatedServiceResource__c, LocationType
+                FROM Location
+                WHERE WFMCA_RelatedServiceResource__c != NULL
+        ];
+        List<Schema.Address> addresses = new List<Schema.Address>();
+
+        for (Schema.Location location : locations) {
+            List<Schema.Address> newAddresses = createdAddresses(location.WFMCA_RelatedServiceResource__c, location);
+            newAddresses[0].CTCCO_MainAddress__c = true;
+
+            addresses.addAll(newAddresses);
+        }
+
+        for (Schema.Address addr : addresses) {
+            addr.TEKCO_Country__c = GlobalConstants.COUNTRY_CANADA;
+        }
+
+        if (toInsert) {
+            insert addresses;
+        }
+
+        return addresses;
+    }
+
+    /**
+     * @author Olga_Volakova (Olga_Volakova@epam.com) on 03.09.2021
+     * @description creates addresses for parent and his location
+     * @param parentId - Account or Service Resource Id
+     * @param location - parent Location for address
+     * @return new List<Schema.Address>
+    */
+    private static List<Schema.Address> createdAddresses(Id parentId, Schema.Location location) {
+        List<Schema.Address> addrs = Test_AddressHelper.createdDummyAddresses(
+                parentId,
+                location.Id,
+                location.LocationType,
+                NUMBER_OF_ADDRESSES,
+                false
+        );
+
+        for (Schema.Address addr : addrs) {
+            addr.Street = STREET;
+            addr.City = CITY;
+            addr.CountryCode = AddressHelper.COUNTRY_CODE_CANADA;
+            addr.PostalCode = POSTAL_CODE;
+            addr.StateCode = AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA;
+        }
+
+        return addrs;
+    }
+
+    /**
+     * @author Anna Kudriashova (Anna_Kudriashova@epam.com) on 03.11.2021
+     * @description returns addresses
+     * @param accounts - accounts related to addresses
+     * @return list of addresses for required accounts
+    */
+    private static List<Schema.Address> getAddresses(List<Account> accounts) {
+        return [
+                SELECT
+                        ACCCO_RelatedAccount__c,
+                        City,
+                        Country,
+                        CountryCode,
+                        CUSBR_ComplementInformation__c,
+                        CUSBR_Neighborhood__c,
+                        PostalCode,
+                        State,
+                        StateCode,
+                        Street
+                FROM Address
+                WHERE ACCCO_RelatedAccount__c IN :accounts
+        ];
+    }
+    /**
+         * @author Shazia A - shazia.a-sc@airliquide.com
+         *@description Update GeoLocation on ServiceAppointments
+    */
+    @isTest
+    private static void getGeoLocation (){
+        
+       	Account patientAccountRecord = Test_PatientHelper.createPatientWithMailingAddress(
+            STREET,
+            CITY,
+            '',
+            POSTAL_CODE,
+            AddressHelper.COUNTRY_CODE_FRANCE,
+            AccountHelper.STATUS_ACTIVE,
+            true
+        );
+        
+        List<Schema.Address> laAddresses = Test_AddressHelper.createMainAddressesForPatients(
+                    Test_PatientHelper.createDummyPatients(NUMBER_OF_PATIENTS, true),
+                    STREET,
+                    CITY,
+                    AddressHelper.CANADA_STATE_CODE_BRITISH_COLUMBIA,
+                    POSTAL_CODE,
+                    AddressHelper.COUNTRY_CODE_CANADA,
+                    true
+            );
+        PASCO_TherapyType__c therapyType = Test_TherapyTypeHelper.createDummyTherapyType('DUMMY_NAME', TherapyHelper.GROUP_CHRONIC_INFUSION_NAME, true);
+            
+            PASCO_Therapy__c therapyOnServiceAppointment = new PASCO_Therapy__c();
+           
+                therapyOnServiceAppointment = Test_TherapyHelper.createDummyTherapy(
+            	patientAccountRecord.Id,
+            	therapyType.Id,
+            	null,
+            	null,
+            	Date.today().addDays(-10),
+            	Date.today().addDays(1000),
+            	true
+        	);
+            
+           	therapyOnServiceAppointment.PASCO_Status__c = TherapyHelper.STATUS_ACTIVE;
+        
+            update therapyOnServiceAppointment; 
+            
+            WorkType workTypesOnWorkOrder = Test_WorkTypeHelper.createDummyWorkType(
+            Test_WorkTypeHelper.DUMMY_NAME,
+            Test_WorkTypeHelper.DUMMY_DURATION,
+            therapyType.Id,
+            false,
+            false
+        );
+		WorkOrder workOrderRecord = Test_WorkOrderHelper.createDummyWorkOrder(
+                therapyOnServiceAppointment.PASCO_Patient__c,
+                null,
+                workTypesOnWorkOrder.Id,
+                therapyOnServiceAppointment.Id,
+                false
+            );
+         ServiceAppointment serviceAppointmentRecord = Test_ServiceAppointmentHelper.createDummyServiceAppointment(
+               workOrderRecord.Id,
+               Datetime.now(),
+               Datetime.now().addDays(1),
+               false
+           ) ; 
+		
+            
+            for (Schema.Address address : laAddresses) {
+                address.TEKCO_GeolocationType__c = GlobalConstants.GEOLOCATED_MANUALLY;
+                address.Latitude =  32.87;
+				address.Longitude =  32.87;
+            }
+        	
+        Test.startTest();
+        update laAddresses;
+        Test.stopTest();
+        for (Schema.Address address : laAddresses) {
+            System.assertNotEquals(serviceAppointmentRecord.Latitude,address.Latitude, 'Latitude not updated');
+            System.assertNotEquals(serviceAppointmentRecord.Longitude,address.Longitude, 'Longitude not updated');
         }
     }
 }
