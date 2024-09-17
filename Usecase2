@@ -1,84 +1,77 @@
-<template>
-    <lightning-card title="Cases in Director Queue" icon-name="standard:case">
-        <lightning-datatable
-            data={data}
-            columns={columns}
-            key-field="Id"
-            onrowselection={handleRowSelection}
-            selected-rows={selectedRows}
-            hide-checkbox-column
-        ></lightning-datatable>
-        <template if:true={showRadioButtons}>
-            <lightning-radio-group
-                name="status"
-                options={statusOptions}
-                value={selectedStatus}
-                onchange={handleStatusChange}
-            ></lightning-radio-group>
-            <div style="margin-top: 20px;">
-                <lightning-button
-                    label="Next"
-                    variant="brand"
-                    title="Primary action"
-                    onclick={handleUpdateStatus}
-                ></lightning-button>
-            </div>
-        </template>
-        <template if:false={showRadioButtons}>
-            <p>No cases selected.</p>
-        </template>
-    </lightning-card>
-</template>
- import { LightningElement, track, wire } from 'lwc';
-import getCases from '@salesforce/apex/CaseController.getCases';
-import updateCaseStatus from '@salesforce/apex/CaseController.updateCaseStatus';
+@isTest
+private class AddressTriggerTest {
 
-const columns = [
-    { label: 'Case Number', fieldName: 'CaseNumber' },
-    { label: 'Origin', fieldName: 'Origin' },
-    { label: 'Status', fieldName: 'Status' }
-];
+    @isTest
+    static void testHandleUniqueShippingAddress() {
+        // Create test accounts (hospitals)
+        Account hospital1 = new Account(Name = 'Hospital 1');
+        Account hospital2 = new Account(Name = 'Hospital 2');
+        insert new List<Account>{hospital1, hospital2};
 
-export default class CaseRecordNew extends LightningElement {
-    @track data;
-    @track columns = columns;
-    @track selectedRows = [];
-    @track showRadioButtons = false;
-    @track statusOptions = [{ label: 'Approved', value: 'Approved' }, { label: 'Cancelled', value: 'Cancelled' }];
-    @track selectedStatus;
+        // Create initial addresses for these hospitals
+        Schema.Address address1 = new Schema.Address(
+            ACCCO_RelatedAccount__c = hospital1.Id,
+            CTCCO_ShippingAddress__c = true,
+            Street = '123 Main St',
+            City = 'City',
+            StateCode = 'CA',
+            PostalCode = '12345',
+            CountryCode = 'US'
+        );
+        Schema.Address address2 = new Schema.Address(
+            ACCCO_RelatedAccount__c = hospital2.Id,
+            CTCCO_ShippingAddress__c = false,
+            Street = '456 Elm St',
+            City = 'City',
+            StateCode = 'CA',
+            PostalCode = '67890',
+            CountryCode = 'US'
+        );
 
-    @wire(getCases)
-    caseRecords({ error, data }) {
-        if (data) {
-            this.data = data;
-        } else if (error) {
-            console.error('Error loading cases:', error);
+        insert new List<Schema.Address>{address1, address2};
+
+        // Test case: Insert a new shipping address for an account that already has one
+        Schema.Address address3 = new Schema.Address(
+            ACCCO_RelatedAccount__c = hospital1.Id,
+            CTCCO_ShippingAddress__c = true,
+            Street = '789 Pine St',
+            City = 'City',
+            StateCode = 'CA',
+            PostalCode = '11111',
+            CountryCode = 'US'
+        );
+
+        Test.startTest();
+        try {
+            insert address3;
+            System.assert(false, 'Expected a DMLException for duplicate shipping address');
+        } catch (DmlException e) {
+            System.assert(e.getMessage().contains(System.Label.CUSIT_ShippingAddressCanBeOnlyOne), 'Error message did not match');
         }
-    }
+        Test.stopTest();
 
-    handleRowSelection(event) {
-        this.selectedRows = event.detail.selectedRows;
-        this.showRadioButtons = this.selectedRows.length > 0;
-    }
+        // Test case: Update an existing address to a shipping address when another shipping address exists
+        address2.CTCCO_ShippingAddress__c = true;
 
-    handleStatusChange(event) {
-        this.selectedStatus = event.detail.value;
-    }
-
-    handleUpdateStatus() {
-        const caseIds = this.selectedRows.map(row => row.Id);
-        if (caseIds.length > 0 && this.selectedStatus) {
-            updateCaseStatus({ caseIds: caseIds, newStatus: this.selectedStatus })
-                .then(result => {
-                    // Handle success message or any other action
-                    console.log('Cases updated successfully.');
-                    // Optionally, reset selectedRows and selectedStatus
-                    this.selectedRows = [];
-                    this.selectedStatus = '';
-                })
-                .catch(error => {
-                    console.error('Error updating cases:', error);
-                });
+        Test.startTest();
+        try {
+            update address2;
+            System.assert(false, 'Expected a DMLException for updating to shipping address');
+        } catch (DmlException e) {
+            System.assert(e.getMessage().contains(System.Label.CUSIT_ShippingAddressCanBeOnlyOne2), 'Error message did not match');
         }
+        Test.stopTest();
+
+        // Test case: Update an address from shipping to non-shipping when another address is available
+        address1.CTCCO_ShippingAddress__c = false;
+
+        Test.startTest();
+        try {
+            update address1;
+            System.assert(false, 'Expected a DMLException for changing shipping address to non-shipping');
+        } catch (DmlException e) {
+            System.assert(e.getMessage().contains(System.Label.CUSIT_ShippingAddressCannotBeChanged), 'Error message did not match');
+        }
+        Test.stopTest();
     }
 }
