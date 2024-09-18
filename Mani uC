@@ -244,4 +244,25 @@ public class AddressTriggerHandler extends TriggerHandler {
     }
 }
 
+i need to cover the test class for these below line 
+if (addressesByCountry.containsKey(GlobalConstants.COUNTRY_ITALY)) {
+            system.debug('AddressTriggerHandler BEFORE INSERT');
+            ITA_SM_Address.handleUniqueShippingAddresses(newObjects, null);
+        }
+
+
+if (!italianPatientsALEmployeesOrIndividuals.isEmpty()) {
+            CORE_SM_Address.handleUniqueShippingAddresses(italianPatientsALEmployeesOrIndividuals, addressesMap);
+            ITA_SM_Address.handleUniqueResidenceAddresses(italianPatientsALEmployeesOrIndividuals, addressesMap);
+        }
+
+ system.debug('AddressTriggerHandler BEFORE UPDATE');
+            ITA_SM_Address.handleUniqueShippingAddresses(newObjects, addressesMap);
+        }
+
+if (!italyPatientAddresses.isEmpty()) {
+            CORE_SM_Address.handleUniqueShippingAddresses(italyPatientAddresses, oldAddresses);
+            ITA_SM_Address.handleUniqueResidenceAddresses(italyPatientAddresses, oldAddresses);
+        } 
+from these above class add the test class in AddressTest class
 
