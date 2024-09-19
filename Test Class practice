@@ -80,3 +80,59 @@ trigger CreateSalaryRecord on Summary__c (After insert) {
         insert salaryRecords;
     }
 }
+
+
+@isTest
+public class CreateSalaryRecordTest {
+    
+    @testSetup
+    static void setupData() {
+        // Create Record Types
+        RecordType paRecordType = [SELECT Id FROM RecordType WHERE SObjectType = 'Account' AND DeveloperName = 'PA' LIMIT 1];
+        RecordType aRecordType = [SELECT Id FROM RecordType WHERE SObjectType = 'Account' AND DeveloperName = 'A' LIMIT 1];
+        RecordType mRecordType = [SELECT Id FROM RecordType WHERE SObjectType = 'Account' AND DeveloperName = 'M' LIMIT 1];
+
+        // Create Accounts with different Record Types
+        Account testAccountPA = new Account(Name = 'Test Account PA', RecordTypeId = paRecordType.Id);
+        Account testAccountA = new Account(Name = 'Test Account A', RecordTypeId = aRecordType.Id);
+        Account testAccountM = new Account(Name = 'Test Account M', RecordTypeId = mRecordType.Id);
+        insert new List<Account> {testAccountPA, testAccountA, testAccountM};
+
+        // Create Summaries
+        insert new List<Summary__c>{
+            new Summary__c(Name = 'Summary 1', Account__c = testAccountPA.Id, Type__c = 'Programmer Analyst', Years_of_Experience__c = 1),
+            new Summary__c(Name = 'Summary 2', Account__c = testAccountA.Id, Type__c = 'Associate', Years_of_Experience__c = 3),
+            new Summary__c(Name = 'Summary 3', Account__c = testAccountM.Id, Type__c = 'Manager', Years_of_Experience__c = 5)
+        };
+    }
+
+    @isTest
+    static void testSalaryCreation() {
+        Test.startTest();
+        List<Salary__c> salaries = [SELECT Name, Salary__c, Years_of_Experience__c, Designation__c FROM Salary__c];  
+        Test.stopTest();
+        System.assertEquals(3, salaries.size(), 'There should be 3 salary records created.');
+
+        Salary__c traineeSalary = [SELECT Salary__c FROM Salary__c WHERE Designation__c = 'Programmer Analyst' LIMIT 1];
+        System.assertEquals(25000, traineeSalary.Salary__c, 'Trainee should have salary 25000.');
+
+        Salary__c associateSalary = [SELECT Salary__c FROM Salary__c WHERE Designation__c = 'Associate' LIMIT 1];
+        System.assertEquals(40000, associateSalary.Salary__c, 'Associate should have salary 40000.');
+
+        Salary__c managerSalary = [SELECT Salary__c FROM Salary__c WHERE Designation__c = 'Manager' LIMIT 1];
+        System.assertEquals(60000, managerSalary.Salary__c, 'Manager should have salary 60000.');
+    }
+
+    @isTest
+    static void testNullValues() {
+        Test.startTest();
+        Summary__c summary = new Summary__c(
+            Name = 'Summary Null',
+            Years_of_Experience__c = 2
+        );
+        insert summary;
+        Test.stopTest();
+        List<Salary__c> salaries = [SELECT Id FROM Salary__c WHERE Designation__c = null];
+        System.assertEquals(0, salaries.size(), 'No Salary record should be created for null Account or Type.');
+    }
+}
