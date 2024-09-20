@@ -1,113 +1,28 @@
-@isTest
-public class SalaryHelperTest {
-    @isTest
-    static void testCreateSalaryRecords() {
-        // Create test Account
-        Account testAccount = new Account(Name = 'Test Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Programmer Analyst' LIMIT 1].Id);
-        insert testAccount;
-
-        // Create test Summary record
-        Summary__c testSummary = new Summary__c(
-            Account__c = testAccount.Id,
-            Years_Of_Experience__c = 5, // Example experience
-            Type__c = 'Programmer Analyst'
-        );
-        insert testSummary;
-
-        // Call the helper method to create Salary
-        SalaryHelper.createSalary(testSummary);
-
-        // Verify that the Salary record is created based on the summary details
-        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c 
-                                   FROM Salary__c 
-                                   WHERE Name = 'Test Account' LIMIT 1];
-
-        System.assertEquals('Test Account', createdSalary.Name);
-        System.assertEquals(25000, createdSalary.Salary__c);
-        System.assertEquals(5, createdSalary.Years_Of_Experience__c);
-        System.assertEquals('Programmer Analyst', createdSalary.Designation__c);
-    }
-
-    @isTest
-    static void testCreateSalaryForAssociate() {
-        // Create test Account
-        Account testAccount = new Account(Name = 'Associate Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Associate' LIMIT 1].Id);
-        insert testAccount;
-
-        // Create test Summary record
-        Summary__c testSummary = new Summary__c(
-            Account__c = testAccount.Id,
-            Years_Of_Experience__c = 7, // Example experience
-            Type__c = 'Associate'
-        );
-        insert testSummary;
-
-        // Call the helper method to create Salary
-        SalaryHelper.createSalary(testSummary);
-
-        // Verify that the Salary record is created based on the summary details
-        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c 
-                                   FROM Salary__c 
-                                   WHERE Name = 'Associate Account' LIMIT 1];
-
-        System.assertEquals('Associate Account', createdSalary.Name);
-        System.assertEquals(50000, createdSalary.Salary__c);
-        System.assertEquals(7, createdSalary.Years_Of_Experience__c);
-        System.assertEquals('Associate', createdSalary.Designation__c);
-    }
-
-    @isTest
-    static void testCreateSalaryForManager() {
-        // Create test Account
-        Account testAccount = new Account(Name = 'Manager Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Manager' LIMIT 1].Id);
-        insert testAccount;
-
-        // Create test Summary record
-        Summary__c testSummary = new Summary__c(
-            Account__c = testAccount.Id,
-            Years_Of_Experience__c = 10, // Example experience
-            Type__c = 'Manager'
-        );
-        insert testSummary;
-
-        // Call the helper method to create Salary
-        SalaryHelper.createSalary(testSummary);
-
-        // Verify that the Salary record is created based on the summary details
-        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c 
-                                   FROM Salary__c 
-                                   WHERE Name = 'Manager Account' LIMIT 1];
-
-        System.assertEquals('Manager Account', createdSalary.Name);
-        System.assertEquals(100000, createdSalary.Salary__c);
-        System.assertEquals(10, createdSalary.Years_Of_Experience__c);
-        System.assertEquals('Manager', createdSalary.Designation__c);
-    }
-}
-
-
-
-public class SalaryHelper {
-    public static void createSalary(Summary__c summary) {
-        // Initialize the salary value based on the type in Summary
-        Decimal salaryAmount;
-        if (summary.Type__c == 'Programmer Analyst') {
-            salaryAmount = 25000;
-        } else if (summary.Type__c == 'Associate') {
-            salaryAmount = 50000;
-        } else if (summary.Type__c == 'Manager') {
-            salaryAmount = 100000;
-        } else {
-            salaryAmount = 0; // Default case
+trigger CreateSalaryRecord on Summary__c (before insert) {
+    List<Salary__c> salaryRecords= new List<Salary__c>();
+    for(Summary__c summary: Trigger.new){
+        if(summary.Account__c!=null && summary.Type__c!=null){
+            Account acc=[SELECT Name FROM Account WHERE id=: summary.Account__c LIMIT 1];
+            Salary__c newSalary= new Salary__c();
+            newSalary.Name=acc.Name;
+            newSalary.Years_Of_Experience__c=summary.Years_Of_Experience__c;
+            newSalary.Designation__c=summary.Type__c;
+            if(summary.Type__c=='Trainee'){
+                newSalary.Salary__c=25000;
+            }
+            else if(summary.Type__c=='Associate'){
+                newSalary.Salary__c=40000;
+            }
+            else if(summary.Type__c=='Manager'){
+                newSalary.Salary__c=60000;
+            }
+            else{
+                newSalary.Salary__c=0;                
+            }
+            salaryRecords.add(newSalary);
         }
-
-        // Create a Salary record based on the Summary details
-        Salary__c newSalary = new Salary__c();
-        newSalary.Name = summary.Account__r.Name; // Using Account name from Summary
-        newSalary.Salary__c = salaryAmount;
-        newSalary.Years_Of_Experience__c = summary.Years_Of_Experience__c;
-        newSalary.Designation__c = summary.Type__c; // Assigning Type to Designation
-        
-        insert newSalary;
+    }
+    if(!salaryRecords.isEmpty()){
+        insert salaryRecords;
     }
 }
