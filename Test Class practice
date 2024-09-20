@@ -84,3 +84,30 @@ public class SalaryHelperTest {
         System.assertEquals('Manager', createdSalary.Designation__c);
     }
 }
+
+
+
+public class SalaryHelper {
+    public static void createSalary(Summary__c summary) {
+        // Initialize the salary value based on the type in Summary
+        Decimal salaryAmount;
+        if (summary.Type__c == 'Programmer Analyst') {
+            salaryAmount = 25000;
+        } else if (summary.Type__c == 'Associate') {
+            salaryAmount = 50000;
+        } else if (summary.Type__c == 'Manager') {
+            salaryAmount = 100000;
+        } else {
+            salaryAmount = 0; // Default case
+        }
+
+        // Create a Salary record based on the Summary details
+        Salary__c newSalary = new Salary__c();
+        newSalary.Name = summary.Account__r.Name; // Using Account name from Summary
+        newSalary.Salary__c = salaryAmount;
+        newSalary.Years_Of_Experience__c = summary.Years_Of_Experience__c;
+        newSalary.Designation__c = summary.Type__c; // Assigning Type to Designation
+        
+        insert newSalary;
+    }
+}
