@@ -108,3 +108,72 @@ trigger CreateSalaryOnSummary on Summary__c (after insert) {
     // Call the helper class to process salary creation
     SalaryHelper.createSalaryRecords(Trigger.new);
 }
+
+@isTest
+public class SalaryHelperTest {
+    @isTest
+    static void testCreateSalaryRecords() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Test Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Programmer Analyst' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 5, // Example experience
+            Type__c = 'Programmer Analyst'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c FROM Salary__c WHERE Summary__c = :testSummary.Id LIMIT 1];
+        
+        System.assertEquals('Test Account', createdSalary.Name);
+        System.assertEquals(25000, createdSalary.Salary__c);
+        System.assertEquals(5, createdSalary.Years_Of_Experience__c);
+    }
+    
+    @isTest
+    static void testCreateSalaryForAssociate() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Associate Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Associate' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 7, // Example experience
+            Type__c = 'Associate'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c FROM Salary__c WHERE Summary__c = :testSummary.Id LIMIT 1];
+        
+        System.assertEquals('Associate Account', createdSalary.Name);
+        System.assertEquals(50000, createdSalary.Salary__c);
+        System.assertEquals(7, createdSalary.Years_Of_Experience__c);
+    }
+    
+    @isTest
+    static void testCreateSalaryForManager() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Manager Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Manager' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 10, // Example experience
+            Type__c = 'Manager'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c FROM Salary__c WHERE Summary__c = :testSummary.Id LIMIT 1];
+        
+        System.assertEquals('Manager Account', createdSalary.Name);
+        System.assertEquals(100000, createdSalary.Salary__c);
+        System.assertEquals(10, createdSalary.Years_Of_Experience__c);
+    }
+}
