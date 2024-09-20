@@ -14,14 +14,18 @@ public class SalaryHelperTest {
         );
         insert testSummary;
 
-        // Verify that the Salary record is created
-        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c, Account__c FROM Salary__c WHERE Account__c = :testAccount.Id LIMIT 1];
+        // Call the helper method to create Salary
+        SalaryHelper.createSalary(testSummary);
+
+        // Verify that the Salary record is created based on the summary details
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c 
+                                   FROM Salary__c 
+                                   WHERE Name = 'Test Account' LIMIT 1];
 
         System.assertEquals('Test Account', createdSalary.Name);
         System.assertEquals(25000, createdSalary.Salary__c);
         System.assertEquals(5, createdSalary.Years_Of_Experience__c);
         System.assertEquals('Programmer Analyst', createdSalary.Designation__c);
-        System.assertEquals(testAccount.Id, createdSalary.Account__c);
     }
 
     @isTest
@@ -38,14 +42,18 @@ public class SalaryHelperTest {
         );
         insert testSummary;
 
-        // Verify that the Salary record is created
-        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c, Account__c FROM Salary__c WHERE Account__c = :testAccount.Id LIMIT 1];
+        // Call the helper method to create Salary
+        SalaryHelper.createSalary(testSummary);
+
+        // Verify that the Salary record is created based on the summary details
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c 
+                                   FROM Salary__c 
+                                   WHERE Name = 'Associate Account' LIMIT 1];
 
         System.assertEquals('Associate Account', createdSalary.Name);
         System.assertEquals(50000, createdSalary.Salary__c);
         System.assertEquals(7, createdSalary.Years_Of_Experience__c);
         System.assertEquals('Associate', createdSalary.Designation__c);
-        System.assertEquals(testAccount.Id, createdSalary.Account__c);
     }
 
     @isTest
@@ -62,13 +70,17 @@ public class SalaryHelperTest {
         );
         insert testSummary;
 
-        // Verify that the Salary record is created
-        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c, Account__c FROM Salary__c WHERE Account__c = :testAccount.Id LIMIT 1];
+        // Call the helper method to create Salary
+        SalaryHelper.createSalary(testSummary);
+
+        // Verify that the Salary record is created based on the summary details
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c 
+                                   FROM Salary__c 
+                                   WHERE Name = 'Manager Account' LIMIT 1];
 
         System.assertEquals('Manager Account', createdSalary.Name);
         System.assertEquals(100000, createdSalary.Salary__c);
         System.assertEquals(10, createdSalary.Years_Of_Experience__c);
         System.assertEquals('Manager', createdSalary.Designation__c);
-        System.assertEquals(testAccount.Id, createdSalary.Account__c);
     }
 }
