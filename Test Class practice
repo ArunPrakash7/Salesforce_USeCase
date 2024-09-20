@@ -26,3 +26,96 @@ trigger CreateSalaryRecord on Summary__c (before insert) {
         insert salaryRecords;
     }
 }
+
+
+@isTest
+public class CreateSalaryRecordTest {
+    
+    @isTest
+    static void testCreateSalaryForTrainee() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Trainee Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Programmer Analyst' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record with 'Trainee' type
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 1, // Example experience
+            Type__c = 'Trainee'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created based on the summary details
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c FROM Salary__c WHERE Name = 'Trainee Account' LIMIT 1];
+        System.assertEquals('Trainee Account', createdSalary.Name);
+        System.assertEquals(25000, createdSalary.Salary__c);
+        System.assertEquals(1, createdSalary.Years_Of_Experience__c);
+        System.assertEquals('Trainee', createdSalary.Designation__c);
+    }
+    
+    @isTest
+    static void testCreateSalaryForAssociate() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Associate Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Associate' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record with 'Associate' type
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 3, // Example experience
+            Type__c = 'Associate'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created based on the summary details
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c FROM Salary__c WHERE Name = 'Associate Account' LIMIT 1];
+        System.assertEquals('Associate Account', createdSalary.Name);
+        System.assertEquals(40000, createdSalary.Salary__c);
+        System.assertEquals(3, createdSalary.Years_Of_Experience__c);
+        System.assertEquals('Associate', createdSalary.Designation__c);
+    }
+
+    @isTest
+    static void testCreateSalaryForManager() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Manager Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Manager' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record with 'Manager' type
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 8, // Example experience
+            Type__c = 'Manager'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created based on the summary details
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c FROM Salary__c WHERE Name = 'Manager Account' LIMIT 1];
+        System.assertEquals('Manager Account', createdSalary.Name);
+        System.assertEquals(60000, createdSalary.Salary__c);
+        System.assertEquals(8, createdSalary.Years_Of_Experience__c);
+        System.assertEquals('Manager', createdSalary.Designation__c);
+    }
+
+    @isTest
+    static void testCreateSalaryForNoMatch() {
+        // Create test Account
+        Account testAccount = new Account(Name = 'Unknown Type Account', RecordTypeId = [SELECT Id FROM RecordType WHERE Name = 'Programmer Analyst' LIMIT 1].Id);
+        insert testAccount;
+        
+        // Create test Summary record with unknown type
+        Summary__c testSummary = new Summary__c(
+            Account__c = testAccount.Id,
+            Years_Of_Experience__c = 2, // Example experience
+            Type__c = 'Unknown'
+        );
+        insert testSummary;
+        
+        // Verify that the Salary record is created with 0 salary
+        Salary__c createdSalary = [SELECT Name, Salary__c, Years_Of_Experience__c, Designation__c FROM Salary__c WHERE Name = 'Unknown Type Account' LIMIT 1];
+        System.assertEquals('Unknown Type Account', createdSalary.Name);
+        System.assertEquals(0, createdSalary.Salary__c);
+        System.assertEquals(2, createdSalary.Years_Of_Experience__c);
+        System.assertEquals('Unknown', createdSalary.Designation__c);
+    }
+}
